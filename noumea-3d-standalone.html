@@ -3127,13 +3127,19 @@ const PAL = {
   boatHulls: [0x1e3a5f, 0xb91c1c, 0x0284c7, 0xf59e0b, 0x10b981, 0xf8fafc, 0x334155, 0xe11d48],
   boatWake: 0xffffff,
 
-  /* Plage & Détails Minipoly */
+  /* Plage, Baigneurs & Détails Minipoly */
   parasolBlue: 0x1976d2, parasolYellow: 0xf59e0b, parasolWhite: 0xffffff, parasolPole: 0xdab584,
   rock: [0x9ea29b, 0xb2b4ac, 0x8f938b], rockMoss: 0x6ec028,
   deckFabric: 0x1976d2, deckWood: 0xd69a60,
   surfboard: [0xef4444, 0x06b6d4, 0xf59e0b, 0x8b5cf6, 0x10b981],
   tikiThatch: 0xd8a45a, tikiWood: 0x8c6239,
   towels: [0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6, 0xec4899, 0xffffff],
+  wetSand: 0xc68e42, wetSandDark: 0xaa702a, wetSandShine: 0xdfa450,
+  inflatableDonut: 0xf472b6, inflatableSprinkles: 0xfacc15, inflatableFlamingo: 0xf43f5e, inflatableBeak: 0xfbbf24,
+  strawHat: 0xeab308, strawHatBand: 0xef4444, sunglasses: 0x18181b,
+  swimwear: [0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6, 0xec4899, 0x06b6d4, 0x18181b, 0xffffff],
+  skinDiverse: [0x543216, 0x7c4722, 0xaa6b3c, 0xc88958, 0xe2a87e, 0xf6ceb4],
+  sandCastle: 0xeab358, sandCastleFlag: 0xef4444, sandBucket: 0xef4444, sandSpade: 0x3b82f6,
 
   /* Éléments d'îlot Minipoly */
   basaltRock: [0x262b32, 0x363c46, 0x1f2329],
@@ -3160,7 +3166,8 @@ const PAL = {
   jockHelmet: [0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6, 0xec4899, 0xffffff],
   foamSurf: 0xffffff, foamEdge: 0xcffafe,
   cloud: 0xffffff, star: 0xffffff, lampGlow: 0xffea9f, windowGlow: 0xffd574,
-  tyre: 0x1e2329, wheelRim: 0xe2e8f0, chrome: 0xd0d5dc, legs: 0x2c3848
+  tyre: 0x1e2329, wheelRim: 0xe2e8f0, chrome: 0xd0d5dc, legs: 0x2c3848,
+  fountainMist: 0xe0f2fe, fountainCascade: 0x99f6e4, fountainFoam: 0xffffff
 };
 
 const QUALITY = {
@@ -3293,16 +3300,39 @@ function ribbonGeo(pts, width, y, hex) {
 }
 
 function slopeGeo(pts, backOff, yBack, frontOff, yFront, hex, rev = false) {
+  const N = pts.length;
+  if (N < 2) return new THREE.BufferGeometry();
+
+  // Normale lissée à chaque sommet pour garantir un ruban sans faille ni interstice
+  const vNorms = [];
+  for (let i = 0; i < N; i++) {
+    let nx = 0, nz = 0;
+    if (i > 0) {
+      const dx1 = pts[i][0] - pts[i - 1][0], dz1 = pts[i][1] - pts[i - 1][1];
+      const l1 = Math.hypot(dx1, dz1) || 1;
+      nx += -dz1 / l1; nz += dx1 / l1;
+    }
+    if (i < N - 1) {
+      const dx2 = pts[i + 1][0] - pts[i][0], dz2 = pts[i + 1][1] - pts[i][1];
+      const l2 = Math.hypot(dx2, dz2) || 1;
+      nx += -dz2 / l2; nz += dx2 / l2;
+    }
+    const ln = Math.hypot(nx, nz) || 1;
+    vNorms.push([nx / ln, nz / ln]);
+  }
+
+  // Ruban de sommets continus et jointifs (zéro trou, zéro découpe)
+  const backPts = [], frontPts = [];
+  for (let i = 0; i < N; i++) {
+    const p = pts[i], n = vNorms[i];
+    backPts.push([p[0] + n[0] * backOff, yBack, p[1] + n[1] * backOff]);
+    frontPts.push([p[0] + n[0] * frontOff, yFront, p[1] + n[1] * frontOff]);
+  }
+
   const pos = [];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i], b = pts[i + 1];
-    const dx = b[0] - a[0], dz = b[1] - a[1];
-    const len = Math.hypot(dx, dz) || 1;
-    const nx = -dz / len, nz = dx / len;
-    const b0 = [a[0] + nx * backOff, yBack, a[1] + nz * backOff];
-    const b1 = [b[0] + nx * backOff, yBack, b[1] + nz * backOff];
-    const f0 = [a[0] + nx * frontOff, yFront, a[1] + nz * frontOff];
-    const f1 = [b[0] + nx * frontOff, yFront, b[1] + nz * frontOff];
+  for (let i = 0; i < N - 1; i++) {
+    const b0 = backPts[i], b1 = backPts[i + 1];
+    const f0 = frontPts[i], f1 = frontPts[i + 1];
     if (!rev) {
       pos.push(b0[0], b0[1], b0[2],  f0[0], f0[1], f0[2],  b1[0], b1[1], b1[2]);
       pos.push(b1[0], b1[1], b1[2],  f0[0], f0[1], f0[2],  f1[0], f1[1], f1[2]);
@@ -3364,6 +3394,13 @@ const _q = new THREE.Quaternion(), _e = new THREE.Euler();
 
 function setTRS(im, i, x, y, z, ry, sx = 1, sy = 1, sz = 1) {
   _e.set(0, ry, 0); _q.setFromEuler(_e);
+  _v3.set(x, y, z); _v3b.set(sx, sy, sz);
+  _m4.compose(_v3, _q, _v3b);
+  im.setMatrixAt(i, _m4);
+}
+
+function setFull(im, i, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  _e.set(rx, ry, rz); _q.setFromEuler(_e);
   _v3.set(x, y, z); _v3b.set(sx, sy, sz);
   _m4.compose(_v3, _q, _v3b);
   im.setMatrixAt(i, _m4);
@@ -3573,8 +3610,6 @@ scene.add(mergedMesh(sandParts.concat(islandDunes), { cast: false, double: true 
 
 const shallowMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
 const shallowMesh = new THREE.Mesh(mergeGeometries([
-  slopeGeo(SHORE_CITRONS, -36, 0.74, 155, 0.64, PAL.shallow, true),
-  slopeGeo(SHORE_VATA, -40, 0.74, 195, 0.64, PAL.shallow, true),
   minipolyShallowGeo(430, 1020, 88, 1.2),
   minipolyShallowGeo(-480, 1620, 160, 3.4),
   minipolyShallowGeo(1050, 2150, 135, 5.1),
@@ -3583,24 +3618,46 @@ const shallowMesh = new THREE.Mesh(mergeGeometries([
 ], false), shallowMat);
 scene.add(shallowMesh);
 
-/* Récifs coralliens sous-marins translucides (patates de corail visibles sous le lagon) */
-const coralReefs = [];
-for (let cr = 0; cr < 26; cr++) {
-  const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
-  const p0 = b[(rnd() * b.length) | 0];
-  const rx = p0[0] + rr(-50, 50), rz = p0[1] + rr(30, 95);
-  const crGeo = new THREE.DodecahedronGeometry(rr(3, 8), 0);
-  crGeo.scale(1, rr(0.35, 0.65), 1.2);
-  crGeo.translate(rx, 0.15, rz);
-  coralReefs.push(prep(crGeo, pick([0x38bdf8, 0x2dd4bf, 0x0284c7])));
+/* Château de sable low-poly avec tourelles, fanion, seau et pelle */
+function sandCastleGeo(x, y, z, ry = 0) {
+  const parts = [];
+  // Donjon central
+  parts.push(bx(2.2, 1.2, 2.2, PAL.sandCastle, x, y + 0.6, z, ry));
+  // 4 Créneaux
+  [-0.85, 0.85].forEach(ox => {
+    [-0.85, 0.85].forEach(oz => {
+      parts.push(bx(0.42, 0.35, 0.42, PAL.sandCastle, x + ox, y + 1.35, z + oz, ry));
+    });
+  });
+  // 4 Tourelles d'angle avec toits coniques
+  [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]].forEach(([tx, tz]) => {
+    parts.push(cylG(0.55, 0.65, 1.5, 6, PAL.sandCastle, x + tx, y + 0.75, z + tz, ry));
+    parts.push(coneG(0.72, 0.85, 6, PAL.sandCastle, x + tx, y + 1.9, z + tz, ry));
+  });
+  // Mât et petit drapeau rouge
+  parts.push(cylG(0.04, 0.04, 1.4, 4, 0xd8b584, x, y + 1.8, z));
+  parts.push(bx(0.55, 0.32, 0.04, PAL.sandCastleFlag, x + 0.28, y + 2.1, z, ry));
+  // Seau de plage plastique et pelle
+  parts.push(cylG(0.38, 0.28, 0.55, 6, PAL.sandBucket, x + 2.2, y + 0.28, z + 0.6, ry + 0.3));
+  parts.push(bx(0.24, 0.08, 0.95, PAL.sandSpade, x + 2.0, y + 0.05, z - 1.4, ry - 0.5));
+  return mergeGeometries(parts, false);
 }
-scene.add(mergedMesh(coralReefs, { cast: false }));
 
-/* Système dynamique d'écume blanche de bord de plage (Shoreline Surf & Waves) */
+/* Bande continue de sable mouillé satiné (Wet Sand Sheen) */
+const wetSandParts = [
+  slopeGeo(SHORE_CITRONS, 14, 1.55, 28, 0.25, PAL.wetSand),
+  slopeGeo(SHORE_VATA, 16, 1.55, 30, 0.25, PAL.wetSand)
+];
+const wetSandMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+const wetSandMesh = new THREE.Mesh(mergeGeometries(wetSandParts, false), wetSandMat);
+wetSandMesh.position.y = 0.04;
+scene.add(wetSandMesh);
+
+/* Système dynamique d'écume blanche de bord de plage curviligne (Shoreline Surf & Waves) */
 const shoreFoamData = [];
 const shoreCurves = [
-  resample(SHORE_CITRONS, 9, false),
-  resample(SHORE_VATA, 9, false)
+  resample(SHORE_CITRONS, 5.5, false),
+  resample(SHORE_VATA, 5.5, false)
 ];
 
 shoreCurves.forEach((pts, sIdx) => {
@@ -3608,18 +3665,18 @@ shoreCurves.forEach((pts, sIdx) => {
     const a = pts[i], b = pts[i + 1];
     const dx = b[0] - a[0], dz = b[1] - a[1];
     const len = Math.hypot(dx, dz) || 1;
-    // Normale dirigée vers le sable doré
+    // Normale dirigée vers le lagon
     const nx = -dz / len, nz = dx / len;
     shoreFoamData.push({
       ax: a[0], az: a[1], bx: b[0], bz: b[1],
       nx, nz,
-      phase: (i / pts.length) * Math.PI * 2 + sIdx * 1.6,
+      phase: (i / pts.length) * Math.PI * 2 + sIdx * 2.1,
       sIdx
     });
   }
 });
 
-const totalFoamQuads = shoreFoamData.length * 2; // Vague déferlante sur le sable + brisant extérieur
+const totalFoamQuads = shoreFoamData.length * 2;
 const foamPositions = new Float32Array(totalFoamQuads * 18);
 const foamColors = new Float32Array(totalFoamQuads * 18);
 
@@ -3630,12 +3687,12 @@ shoreFoamGeo.setAttribute('color', new THREE.BufferAttribute(foamColors, 3));
 const shoreFoamMat = new THREE.MeshLambertMaterial({
   vertexColors: true,
   transparent: true,
-  opacity: 0.94,
+  opacity: 0.96,
   side: THREE.DoubleSide,
   depthWrite: false
 });
 const shoreFoamMesh = new THREE.Mesh(shoreFoamGeo, shoreFoamMat);
-shoreFoamMesh.renderOrder = 3;
+shoreFoamMesh.renderOrder = 4;
 scene.add(shoreFoamMesh);
 
 /* ---------------------------------------------------------------------
@@ -3992,22 +4049,28 @@ for (let ri = 0; ri < 10; ri++) {
 }
 isletProps.push(rowBoatGeo(1365, 0.48, 685, 0.55, 0.12, 0.05));
 
-/* 5. Serviettes de plage colorées sur l'Anse Vata et la Baie des Citrons */
+/* 5. Serviettes de plage colorées & Châteaux de sable sur l'Anse Vata et la Baie des Citrons */
 const beachTowels = [];
 SHORE_VATA.forEach((p, ti) => {
   if (ti % 2 === 0) {
     const col = PAL.towels[ti % PAL.towels.length];
-    beachTowels.push(beachTowelGeo(p[0] + 6, BEACH_Y + 0.02, p[1] - 10, 0.15, col));
-    beachTowels.push(beachTowelGeo(p[0] - 12, BEACH_Y + 0.02, p[1] - 14, -0.22, PAL.towels[(ti + 2) % PAL.towels.length]));
+    // Positionnées sur le sable doré en pente (y = 1.65 / 1.35) vers l'océan (z + 12 et z + 18)
+    beachTowels.push(beachTowelGeo(p[0] + 4, 1.85, p[1] + 12, 0.15, col));
+    beachTowels.push(beachTowelGeo(p[0] - 8, 1.45, p[1] + 18, -0.22, PAL.towels[(ti + 2) % PAL.towels.length]));
   }
 });
 SHORE_CITRONS.forEach((p, ti) => {
   if (ti % 2 === 1) {
     const col = PAL.towels[(ti + 3) % PAL.towels.length];
-    beachTowels.push(beachTowelGeo(p[0] + 8, BEACH_Y + 0.02, p[1] - 8, -0.4, col));
+    beachTowels.push(beachTowelGeo(p[0] + 6, 1.75, p[1] + 14, -0.4, col));
   }
 });
 isletProps.push(...beachTowels);
+
+// Châteaux de sable sculptés avec drapeaux et seaux
+isletProps.push(sandCastleGeo(185, 1.35, 726, 0.2));
+isletProps.push(sandCastleGeo(320, 1.25, 730, -0.35));
+isletProps.push(sandCastleGeo(-210, 1.30, 682, 0.5));
 
 scene.add(mergedMesh(isletProps, { cast: true }));
 
@@ -4757,65 +4820,75 @@ VOLLEY.forEach(([x, z, ry]) => {
   }
 });
 
-/* Parasols Minipoly bleu roi et or */
+/* Parasols Minipoly bleu roi et or sur le sable */
 for (let k = 0; k < 46; k++) {
   const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const x = p0[0] + rr(-44, 44), z = p0[1] - rr(5, 28);
-  if (rnd() < 0.72) {
-    const isBlue = rnd() < 0.8;
+  const dz = rr(6, 24);
+  const x = p0[0] + rr(-36, 36), z = p0[1] + dz;
+  if (onRoad(x, z, 7)) continue;
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
+  if (rnd() < 0.75) {
+    const isBlue = rnd() < 0.78;
     const pCol = isBlue ? PAL.parasolBlue : PAL.parasolYellow;
-    L.push(cylG(0.14, 0.14, 2.6, 5, PAL.parasolPole, x, BEACH_Y + 1.3, z));
-    L.push(coneG(2.5, 0.98, 8, pCol, x, BEACH_Y + 2.65, z));
-    L.push(cylG(2.55, 2.55, 0.14, 8, PAL.parasolWhite, x, BEACH_Y + 2.18, z));
+    L.push(cylG(0.14, 0.14, 2.6, 5, PAL.parasolPole, x, yBase + 1.3, z));
+    L.push(coneG(2.5, 0.98, 8, pCol, x, yBase + 2.65, z));
+    L.push(cylG(2.55, 2.55, 0.14, 8, PAL.parasolWhite, x, yBase + 2.18, z));
     /* Petites bandes alternées blanches sur la toile */
-    L.push(coneG(1.2, 0.99, 4, PAL.parasolWhite, x, BEACH_Y + 2.66, z));
+    L.push(coneG(1.2, 0.99, 4, PAL.parasolWhite, x, yBase + 2.66, z));
   } else {
-    L.push(bx(2.4, 0.08, 1.3, pick([0x0ea5e9, 0xef4444, 0xf59e0b, 0x10b981]), x, BEACH_Y + 0.05, z, rnd() * 3));
+    L.push(bx(2.4, 0.08, 1.3, pick([0x0ea5e9, 0xef4444, 0xf59e0b, 0x10b981]), x, yBase + 0.05, z, rnd() * 3));
   }
 }
 
-/* Transats rayés en bois */
-for (let k = 0; k < 32; k++) {
+/* Transats rayés en bois sur le sable */
+for (let k = 0; k < 34; k++) {
   const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const x = p0[0] + rr(-44, 44), z = p0[1] - rr(6, 26), a = rr(-0.5, 0.5);
-  L.push(bx(1.5, 0.14, 2.2, PAL.deckWood, x, BEACH_Y + 0.45, z, a));
-  L.push(bx(1.3, 0.06, 2.0, PAL.deckFabric, x, BEACH_Y + 0.52, z, a));
+  const dz = rr(8, 22);
+  const x = p0[0] + rr(-36, 36), z = p0[1] + dz, a = rr(-0.5, 0.5);
+  if (onRoad(x, z, 7)) continue;
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
+  L.push(bx(1.5, 0.14, 2.2, PAL.deckWood, x, yBase + 0.45, z, a));
+  L.push(bx(1.3, 0.06, 2.0, PAL.deckFabric, x, yBase + 0.52, z, a));
   const back = new THREE.BoxGeometry(1.5, 0.14, 1.6);
   back.translate(0, 0, -0.8);
   back.rotateX(-0.95);
   back.rotateY(a);
-  back.translate(x - Math.sin(a) * 1.1, BEACH_Y + 0.54, z - Math.cos(a) * 1.1);
+  back.translate(x - Math.sin(a) * 1.1, yBase + 0.54, z - Math.cos(a) * 1.1);
   L.push(prep(back, PAL.deckFabric));
-  L.push(bx(1.3, 0.4, 0.14, PAL.deckWood, x, BEACH_Y + 0.24, z, a));
+  L.push(bx(1.3, 0.4, 0.14, PAL.deckWood, x, yBase + 0.24, z, a));
 }
 
-/* Rochers à gradins côtiers et calottes de mousse étagée */
-for (let k = 0; k < 42; k++) {
+/* Rochers côtiers */
+for (let k = 0; k < 36; k++) {
   const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const x = p0[0] + rr(-48, 48), z = p0[1] - rr(0, 32);
-  const r0 = rr(2.0, 4.8);
+  const dz = rr(10, 28);
+  const x = p0[0] + rr(-40, 40), z = p0[1] + dz;
+  if (onRoad(x, z, 7)) continue;
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
+  const r0 = rr(1.8, 3.8);
   const g = new THREE.DodecahedronGeometry(r0, 0);
   g.scale(1, rr(0.55, 0.9), rr(0.8, 1.2));
   g.rotateY(rnd() * 3);
-  g.translate(x, BEACH_Y + r0 * 0.32, z);
+  g.translate(x, yBase + r0 * 0.28, z);
   L.push(prep(g, pick(PAL.rock)));
 
   const m = new THREE.IcosahedronGeometry(r0 * 0.52, 0);
   m.scale(1, 0.42, 1);
-  m.translate(x + rr(-0.4, 0.4), BEACH_Y + r0 * 0.68, z + rr(-0.4, 0.4));
+  m.translate(x + rr(-0.4, 0.4), yBase + r0 * 0.62, z + rr(-0.4, 0.4));
   L.push(prep(m, PAL.rockMoss));
 }
 
 /* Râteliers de planches de surf en bois */
-[[-145, 668, 0.1], [280, 695, -0.12]].forEach(([rx, rz, ry]) => {
-  L.push(bx(3.6, 1.8, 0.8, 0x8c6239, rx, BEACH_Y + 0.9, rz, ry));
+[[-145, 695, 0.1], [280, 722, -0.12]].forEach(([rx, rz, ry]) => {
+  const yBase = 1.65;
+  L.push(bx(3.6, 1.8, 0.8, 0x8c6239, rx, yBase + 0.9, rz, ry));
   [-1.2, -0.4, 0.4, 1.2].forEach((sx, idx) => {
     const sCol = pick(PAL.surfboard);
-    L.push(bx(0.65, 2.5, 0.1, sCol, rx + sx, BEACH_Y + 1.3, rz, ry + 0.15));
-    L.push(bx(0.18, 2.52, 0.12, 0xffffff, rx + sx, BEACH_Y + 1.3, rz, ry + 0.15));
+    L.push(bx(0.65, 2.5, 0.1, sCol, rx + sx, yBase + 1.3, rz, ry + 0.15));
+    L.push(bx(0.18, 2.52, 0.12, 0xffffff, rx + sx, yBase + 1.3, rz, ry + 0.15));
   });
 });
 
@@ -4823,18 +4896,24 @@ for (let k = 0; k < 42; k++) {
 for (let s = 0; s < 14; s++) {
   const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const sx = p0[0] + rr(-36, 36), sz = p0[1] - rr(4, 22);
+  const dz = rr(8, 22);
+  const sx = p0[0] + rr(-30, 30), sz = p0[1] + dz;
+  if (onRoad(sx, sz, 7)) continue;
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
   const sCol = pick(PAL.surfboard);
   const lean = rr(-0.25, 0.25);
-  L.push(bx(0.72, 2.7, 0.12, sCol, sx, BEACH_Y + 1.25, sz, lean));
-  L.push(bx(0.2, 2.72, 0.14, 0xffffff, sx, BEACH_Y + 1.25, sz, lean));
+  L.push(bx(0.72, 2.7, 0.12, sCol, sx, yBase + 1.25, sz, lean));
+  L.push(bx(0.2, 2.72, 0.14, 0xffffff, sx, yBase + 1.25, sz, lean));
 }
 
 for (let b = 0; b < 12; b++) {
   const p0 = SHORE_VATA[(rnd() * SHORE_VATA.length) | 0];
-  const bxp = p0[0] + rr(-32, 32), bzp = p0[1] - rr(5, 24);
+  const dz = rr(8, 24);
+  const bxp = p0[0] + rr(-30, 30), bzp = p0[1] + dz;
+  if (onRoad(bxp, bzp, 7)) continue;
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
   const ball = new THREE.DodecahedronGeometry(0.48, 0);
-  ball.translate(bxp, BEACH_Y + 0.45, bzp);
+  ball.translate(bxp, yBase + 0.45, bzp);
   L.push(prep(ball, pick([0xef4444, 0x0284c7, 0xf59e0b, 0x10b981])));
 }
 
@@ -4847,18 +4926,6 @@ for (let pil = 0; pil < 9; pil++) {
   L.push(cylG(0.25, 0.25, 0.6, 5, 0x334155, 393.6, 1.7, 720 + pil * 6.5));
 }
 L.push(bx(5.5, 3.4, 5.5, PAL.wallA, 392, 2.9, 718));
-
-/* Feux tricolores */
-AX.forEach(x => AZ.forEach(z => {
-  if (x < -240 || x > 90 || z < -450 || z > -10) return;
-  for (const sx of [-1, 1]) {
-    L.push(cylG(0.18, 0.22, 6.2, 5, 0x3d444e, x + sx * 9.5, 6.1, z + sx * 9.5));
-    L.push(bx(0.8, 2.1, 0.65, 0x22262c, x + sx * 9.5, 9.5, z + sx * 9.5));
-    L.push(bx(0.32, 0.32, 0.14, 0xef4444, x + sx * 9.5, 10.2, z + sx * 9.5 + 0.35));
-    L.push(bx(0.32, 0.32, 0.14, 0xf59e0b, x + sx * 9.5, 9.5, z + sx * 9.5 + 0.35));
-    L.push(bx(0.32, 0.32, 0.14, 0x10b981, x + sx * 9.5, 8.8, z + sx * 9.5 + 0.35));
-  }
-}));
 
 const lampPos = [];
 for (let i = 0; i < PROMENADE.length - 1; i++) {
@@ -4901,102 +4968,171 @@ const fBasinWater = new THREE.Mesh(fBasinGeo, fBasinMat);
 fBasinWater.position.y = 0.96;
 fountainGroup.add(fBasinWater);
 
-/* Jet d'eau central jaillissant (Geyser vertical pulsant) */
+/* Jet d'eau central jaillissant (Geyser vertical à haute pression) */
 const fJetMat = new THREE.MeshLambertMaterial({
   color: 0x6ee7b7,
   transparent: true,
   opacity: 0.92,
   flatShading: true
 });
-const fJetGeo = new THREE.CylinderGeometry(0.18, 0.72, 2.6, 7);
-fJetGeo.translate(0, 1.3, 0);
+const fJetGeo = new THREE.CylinderGeometry(0.24, 0.85, 3.6, 8);
+fJetGeo.translate(0, 1.8, 0);
 const fJetMesh = new THREE.Mesh(fJetGeo, fJetMat);
 fJetMesh.position.y = 7.1;
 fountainGroup.add(fJetMesh);
 
+/* Couronne d'embruns sommitales en éventail */
+const fCrownMat = new THREE.MeshLambertMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0.86,
+  flatShading: true
+});
+const fCrownGeo = new THREE.ConeGeometry(1.5, 1.1, 8);
+fCrownGeo.rotateX(Math.PI);
+const fCrownMesh = new THREE.Mesh(fCrownGeo, fCrownMat);
+fCrownMesh.position.y = 10.6;
+fountainGroup.add(fCrownMesh);
+
 /* Gouttelettes et gerbes d'eau sommitales */
 const fDrops = [];
 const fDropMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
-for (let d = 0; d < 6; d++) {
-  const dm = new THREE.Mesh(new THREE.DodecahedronGeometry(0.24, 0), fDropMat);
+for (let d = 0; d < 8; d++) {
+  const dm = new THREE.Mesh(new THREE.DodecahedronGeometry(0.26, 0), fDropMat);
   fountainGroup.add(dm);
-  fDrops.push({ mesh: dm, ph: (d / 6) * Math.PI * 2, rad: 0.65 + (d % 3) * 0.42 });
+  fDrops.push({ mesh: dm, ph: (d / 8) * Math.PI * 2, rad: 0.75 + (d % 4) * 0.38 });
 }
 
-/* 4 Cascades arquées dynamiques s'écoulant vers le bassin */
-const fCascades = [];
-const fCasMat = new THREE.MeshLambertMaterial({
+/* 8 Jets arqués jaillissant du socle central vers la vasque supérieure */
+const fStreams = [];
+const fStreamMat = new THREE.MeshLambertMaterial({
   color: 0xa7f3d0,
   transparent: true,
   opacity: 0.88,
   flatShading: true
 });
-for (let s = 0; s < 4; s++) {
-  const a = (s / 4) * Math.PI * 2 + Math.PI / 4;
-  const sx = Math.cos(a) * 1.5, sz = Math.sin(a) * 1.5;
-  const tx = Math.cos(a) * 6.5, tz = Math.sin(a) * 6.5;
-  const cGeo = segCyl(sx, 4.8, sz, tx, 1.0, tz, 0.48, 0.92, 6, 0xa7f3d0);
+for (let s = 0; s < 8; s++) {
+  const a = (s / 8) * Math.PI * 2;
+  const sx = Math.cos(a) * 0.6, sz = Math.sin(a) * 0.6;
+  const tx = Math.cos(a) * 3.4, tz = Math.sin(a) * 3.4;
+  const stGeo = segCyl(sx, 7.2, sz, tx, 4.9, tz, 0.18, 0.32, 5, 0xa7f3d0);
+  const stMesh = new THREE.Mesh(stGeo, fStreamMat);
+  fountainGroup.add(stMesh);
+  fStreams.push({ mesh: stMesh, a });
+}
+
+/* 8 Cascades arquées dynamiques s'écoulant de la vasque vers le grand bassin */
+const fCascades = [];
+const fCasMat = new THREE.MeshLambertMaterial({
+  color: 0xa7f3d0,
+  transparent: true,
+  opacity: 0.86,
+  flatShading: true
+});
+for (let s = 0; s < 8; s++) {
+  const a = (s / 8) * Math.PI * 2 + Math.PI / 8;
+  const sx = Math.cos(a) * 3.2, sz = Math.sin(a) * 3.2;
+  const tx = Math.cos(a) * 7.6, tz = Math.sin(a) * 7.6;
+  const cGeo = segCyl(sx, 4.8, sz, tx, 1.0, tz, 0.52, 1.15, 6, 0xa7f3d0);
   const cMesh = new THREE.Mesh(cGeo, fCasMat);
   fountainGroup.add(cMesh);
   fCascades.push({ mesh: cMesh, a, sx, sz, tx, tz });
 }
 
-/* 4 Anneaux d'écume blanche bouillonnante aux points de chute */
+/* 8 Bouillons d'écume blanche aux points de chute des cascades */
 const fSplashes = [];
 const fSplashMat = new THREE.MeshLambertMaterial({
   color: 0xffffff,
   transparent: true,
-  opacity: 0.92,
+  opacity: 0.94,
   flatShading: true
 });
-for (let s = 0; s < 4; s++) {
-  const a = (s / 4) * Math.PI * 2 + Math.PI / 4;
-  const tx = Math.cos(a) * 6.5, tz = Math.sin(a) * 6.5;
-  const spMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.16, 8), fSplashMat);
-  spMesh.position.set(tx, 1.05, tz);
+for (let s = 0; s < 8; s++) {
+  const a = (s / 8) * Math.PI * 2 + Math.PI / 8;
+  const tx = Math.cos(a) * 7.6, tz = Math.sin(a) * 7.6;
+  const spMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.18, 8), fSplashMat);
+  spMesh.position.set(tx, 1.06, tz);
   fountainGroup.add(spMesh);
-  fSplashes.push({ mesh: spMesh, phase: s * 1.57 });
+  fSplashes.push({ mesh: spMesh, phase: s * 0.785 });
+}
+
+/* Anneaux d'ondes concentriques s'étendant à la surface du bassin */
+const fRipples = [];
+const fRipMat = new THREE.MeshBasicMaterial({
+  color: 0xd1fae5,
+  transparent: true,
+  opacity: 0.65,
+  side: THREE.DoubleSide
+});
+for (let r = 0; r < 3; r++) {
+  const rMesh = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.5, 20), fRipMat);
+  rMesh.rotateX(-Math.PI / 2);
+  rMesh.position.y = 1.02;
+  fountainGroup.add(rMesh);
+  fRipples.push({ mesh: rMesh, phase: r * 2.1 });
 }
 
 /* ---------------------------------------------------------------------
-   7.9 FEUX TRICOLORES DE CIRCULATION AUX CARREFOURS CLÉS
+   7.9 FEUX TRICOLORES DE CIRCULATION SURPOTENCE OVERHEAD AUX CARREFOURS
    ------------------------------------------------------------------ */
 const TRAFFIC_LIGHT_NODES = [
   // Carrefour Place des Cocotiers / Avenue Foch [-130, -230]
-  { id: 'f1_n', x: -138, z: -222, ry: 0,              phaseOffset: 0 },
-  { id: 'f1_s', x: -122, z: -238, ry: Math.PI,        phaseOffset: 0 },
-  { id: 'f1_e', x: -122, z: -222, ry: -Math.PI / 2,   phaseOffset: Math.PI },
-  { id: 'f1_w', x: -138, z: -238, ry: Math.PI / 2,    phaseOffset: Math.PI },
+  { id: 'f1_n', x: -140, z: -218, ry: 0,             phaseOffset: 0 },
+  { id: 'f1_s', x: -120, z: -242, ry: Math.PI,       phaseOffset: 0 },
+  { id: 'f1_e', x: -118, z: -220, ry: -Math.PI / 2,  phaseOffset: Math.PI },
+  { id: 'f1_w', x: -142, z: -240, ry: Math.PI / 2,   phaseOffset: Math.PI },
   // Carrefour Place des Cocotiers / Victoire [-240, -230]
-  { id: 'f2_n', x: -248, z: -222, ry: 0,              phaseOffset: 0 },
-  { id: 'f2_s', x: -232, z: -238, ry: Math.PI,        phaseOffset: 0 },
-  { id: 'f2_e', x: -232, z: -222, ry: -Math.PI / 2,   phaseOffset: Math.PI },
-  { id: 'f2_w', x: -248, z: -238, ry: Math.PI / 2,    phaseOffset: Math.PI },
+  { id: 'f2_n', x: -250, z: -218, ry: 0,             phaseOffset: 0 },
+  { id: 'f2_s', x: -230, z: -242, ry: Math.PI,       phaseOffset: 0 },
+  { id: 'f2_e', x: -228, z: -220, ry: -Math.PI / 2,  phaseOffset: Math.PI },
+  { id: 'f2_w', x: -252, z: -240, ry: Math.PI / 2,   phaseOffset: Math.PI },
   // Carrefour Baie des Citrons / Promenade [-260, 605]
-  { id: 'f3_n', x: -268, z: 598,  ry: 0.2,            phaseOffset: 0 },
-  { id: 'f3_s', x: -252, z: 612,  ry: Math.PI + 0.2,  phaseOffset: Math.PI },
+  { id: 'f3_n', x: -270, z: 596,  ry: 0.2,           phaseOffset: 0 },
+  { id: 'f3_s', x: -250, z: 614,  ry: Math.PI + 0.2, phaseOffset: Math.PI },
   // Carrefour Anse Vata / Promenade [160, 650]
-  { id: 'f4_n', x: 152,  z: 642,  ry: 0.1,            phaseOffset: 0 },
-  { id: 'f4_s', x: 168,  z: 658,  ry: Math.PI + 0.1,  phaseOffset: Math.PI }
+  { id: 'f4_n', x: 150,  z: 640,  ry: 0.1,           phaseOffset: 0 },
+  { id: 'f4_s', x: 170,  z: 660,  ry: Math.PI + 0.1, phaseOffset: Math.PI }
 ];
 
 const trafficPoles = [];
 TRAFFIC_LIGHT_NODES.forEach(tl => {
-  // Mât vertical noir
-  trafficPoles.push(cylG(0.14, 0.18, 6.6, 6, PAL.trafficPole, tl.x, ROAD_Y + 3.3, tl.z));
-  // Potence horizontale au-dessus de la voie
+  // Mât vertical noir en bord de chaussée
+  trafficPoles.push(cylG(0.18, 0.24, 7.2, 6, PAL.trafficPole, tl.x, ROAD_Y + 3.6, tl.z));
+
+  // Potence horizontale surplombant la voie
   const sideX = Math.cos(tl.ry), sideZ = -Math.sin(tl.ry);
-  const fwdX = Math.sin(tl.ry), fwdZ = Math.cos(tl.ry);
-  trafficPoles.push(cylG(0.09, 0.09, 4.0, 5, PAL.trafficPole, tl.x + sideX * 1.8, ROAD_Y + 6.2, tl.z + sideZ * 1.8, 0, tl.ry + Math.PI / 2));
-  // Boîtier noir à 3 feux
-  const bxPos = [tl.x + sideX * 3.4, ROAD_Y + 5.6, tl.z + sideZ * 3.4];
-  trafficPoles.push(bx(0.68, 2.0, 0.52, PAL.trafficHousing, bxPos[0], bxPos[1], bxPos[2], tl.ry));
-  // Visières / casquettes
+  const faceAngle = tl.ry + Math.PI;
+  const toCarX = Math.sin(faceAngle), toCarZ = Math.cos(faceAngle);
+
+  // Bras horizontal traversant la voie (5.0m de portée au-dessus de la voie)
+  const armGeo = new THREE.CylinderGeometry(0.10, 0.10, 5.0, 6);
+  armGeo.rotateZ(Math.PI / 2);
+  armGeo.rotateY(tl.ry);
+  armGeo.translate(tl.x + sideX * 2.5, ROAD_Y + 6.7, tl.z + sideZ * 2.5);
+  trafficPoles.push(prep(armGeo, PAL.trafficPole));
+
+  // Hauban oblique de renfort
+  const braceGeo = new THREE.CylinderGeometry(0.06, 0.06, 2.8, 5);
+  braceGeo.rotateZ(Math.PI / 4);
+  braceGeo.rotateY(tl.ry);
+  braceGeo.translate(tl.x + sideX * 1.0, ROAD_Y + 5.9, tl.z + sideZ * 1.0);
+  trafficPoles.push(prep(braceGeo, PAL.trafficPole));
+
+  // Boîtier noir à 3 feux suspendu au-dessus de la route
+  const hx = tl.x + sideX * 4.2;
+  const hz = tl.z + sideZ * 4.2;
+  const hy = ROAD_Y + 5.3;
+  trafficPoles.push(bx(0.72, 2.2, 0.52, PAL.trafficHousing, hx, hy, hz, faceAngle));
+
+  // Visières / casquettes noires au-dessus de chaque feu
   for (let lk = 0; lk < 3; lk++) {
-    const ly = bxPos[1] + 0.60 - lk * 0.58;
-    trafficPoles.push(bx(0.52, 0.10, 0.35, PAL.trafficHousing, bxPos[0] + fwdX * 0.28, ly + 0.16, bxPos[2] + fwdZ * 0.28, tl.ry));
+    const vy = hy + 0.62 - lk * 0.62;
+    trafficPoles.push(bx(0.56, 0.10, 0.36, PAL.trafficHousing, hx + toCarX * 0.32, vy + 0.18, hz + toCarZ * 0.32, faceAngle));
   }
-  tl.lightCenter = [bxPos[0] + fwdX * 0.26, bxPos[1], bxPos[2] + fwdZ * 0.26];
+
+  // Position et orientation des optiques face aux véhicules qui approchent
+  tl.lightCenter = [hx + toCarX * 0.28, hy, hz + toCarZ * 0.28];
+  tl.faceAngle = faceAngle;
 });
 scene.add(mergedMesh(trafficPoles));
 
@@ -5008,9 +5144,9 @@ const tlGreenMesh = instanced(tlLensGeo, TRAFFIC_LIGHT_NODES.length, { basic: tr
 scene.add(tlRedMesh, tlYellowMesh, tlGreenMesh);
 TRAFFIC_LIGHT_NODES.forEach((tl, i) => {
   const lc = tl.lightCenter;
-  setTRS(tlRedMesh, i, lc[0], lc[1] + 0.60, lc[2], tl.ry);
-  setTRS(tlYellowMesh, i, lc[0], lc[1], lc[2], tl.ry);
-  setTRS(tlGreenMesh, i, lc[0], lc[1] - 0.60, lc[2], tl.ry);
+  setTRS(tlRedMesh, i, lc[0], lc[1] + 0.62, lc[2], tl.faceAngle);
+  setTRS(tlYellowMesh, i, lc[0], lc[1], lc[2], tl.faceAngle);
+  setTRS(tlGreenMesh, i, lc[0], lc[1] - 0.62, lc[2], tl.faceAngle);
 });
 tlRedMesh.count = TRAFFIC_LIGHT_NODES.length;
 tlYellowMesh.count = TRAFFIC_LIGHT_NODES.length;
@@ -5018,6 +5154,50 @@ tlGreenMesh.count = TRAFFIC_LIGHT_NODES.length;
 tlRedMesh.instanceMatrix.needsUpdate = true;
 tlYellowMesh.instanceMatrix.needsUpdate = true;
 tlGreenMesh.instanceMatrix.needsUpdate = true;
+
+/* ---------------------------------------------------------------------
+   7.10 BOUÉES GONFLABLES DU LAGON (DONUTS & FLAMANTS ROSES)
+   ------------------------------------------------------------------ */
+const lagoonFloats = [];
+const donutFloatGeo = (() => {
+  const torus = new THREE.TorusGeometry(1.35, 0.52, 8, 16);
+  torus.rotateX(Math.PI / 2);
+  const icing = new THREE.TorusGeometry(1.36, 0.42, 8, 16);
+  icing.rotateX(Math.PI / 2); icing.translate(0, 0.12, 0);
+  return mergeGeometries([prep(torus, 0xf59e0b), prep(icing, PAL.inflatableDonut)], false);
+})();
+
+const flamingoFloatGeo = (() => {
+  const parts = [];
+  const torus = new THREE.TorusGeometry(1.4, 0.52, 8, 16);
+  torus.rotateX(Math.PI / 2);
+  parts.push(prep(torus, PAL.inflatableFlamingo));
+  // Cou gracieux courbé
+  parts.push(prep(segCyl(0, 0.3, 1.1, 0, 1.6, 1.55, 0.24, 0.16, 6, PAL.inflatableFlamingo)));
+  // Tête et bec noir et rose
+  parts.push(bx(0.32, 0.36, 0.55, PAL.inflatableFlamingo, 0, 1.65, 1.75));
+  parts.push(coneG(0.18, 0.52, 4, 0x18181b, 0, 1.58, 2.12, -Math.PI / 2));
+  // Petite queue à l'arrière
+  parts.push(coneG(0.24, 0.65, 4, PAL.inflatableFlamingo, 0, 0.5, -1.35, Math.PI / 3));
+  return mergeGeometries(parts, false);
+})();
+
+const FLOAT_CONFIGS = [
+  { type: 'donut',    x: 140,  z: 735, ph: 0.0 },
+  { type: 'flamingo', x: 260,  z: 742, ph: 1.4 },
+  { type: 'donut',    x: 390,  z: 738, ph: 2.8 },
+  { type: 'flamingo', x: -180, z: 715, ph: 4.2 },
+  { type: 'donut',    x: -280, z: 685, ph: 5.3 }
+];
+
+const floatMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+FLOAT_CONFIGS.forEach(fc => {
+  const geo = fc.type === 'donut' ? donutFloatGeo : flamingoFloatGeo;
+  const m = new THREE.Mesh(geo, floatMat);
+  m.position.set(fc.x, 0.45, fc.z);
+  scene.add(m);
+  lagoonFloats.push({ mesh: m, x: fc.x, z: fc.z, ph: fc.ph });
+});
 
 
 /* ---------------------------------------------------------------------
@@ -5869,33 +6049,48 @@ const pHeads = instanced(pHeadGeo, 190, { cast: true });
 scene.add(pBodies, pLimbsL, pLimbsR, pHeads);
 
 const people = [];
-function addPerson(kind, data) {
+function addPerson(kind, data, shirtCol, skinCol) {
   const i = people.length;
   if (i >= 190) return;
-  pBodies.setColorAt(i, cRoof.set(pick(PAL.shirt)));
-  pHeads.setColorAt(i, cRoof.set(pick(PAL.skin)));
+  const isBeach = (kind === 'lounger' || kind === 'swimmer' || kind === 'beachkid');
+  const sCol = shirtCol ?? (isBeach ? pick(PAL.swimwear) : pick(PAL.shirt));
+  const skCol = skinCol ?? pick(PAL.skinDiverse);
+  pBodies.setColorAt(i, cRoof.set(sCol));
+  pHeads.setColorAt(i, cRoof.set(skCol));
   people.push({ kind, data, idx: i });
 }
 
 const WALK_PROM = PROMENADE.map(p => [p[0] + 4, p[1] + 16]);
 const promLen = polyLen(WALK_PROM);
-for (let k = 0; k < 42; k++) {
+for (let k = 0; k < 40; k++) {
   addPerson('walker', { path: WALK_PROM, len: promLen, s: rr(0, promLen), spd: rr(2.4, 4.2) * (rnd() < 0.5 ? 1 : -1) });
 }
 const PLAZA_PATH = [[-230, -325], [-30, -325], [-30, -245], [-230, -245], [-230, -325]];
 const plazaLen = polyLen(PLAZA_PATH);
-for (let k = 0; k < 34; k++) {
+for (let k = 0; k < 30; k++) {
   addPerson('walker', { path: PLAZA_PATH, len: plazaLen, s: rr(0, plazaLen), spd: rr(2.2, 3.8) * (rnd() < 0.5 ? 1 : -1) });
 }
+/* Baigneurs et personnes allongées sur les serviettes et transats */
 for (let k = 0; k < 28; k++) {
   const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  addPerson('lounger', { x: p0[0] + rr(-38, 38), z: p0[1] - rr(4, 24), ry: rnd() * Math.PI * 2 });
+  const dz = rr(8, 22);
+  const lx = p0[0] + rr(-32, 32), lz = p0[1] + dz;
+  if (onRoad(lx, lz, 7)) continue;
+  const ly = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
+  addPerson('lounger', { x: lx, y: ly, z: lz, ry: rnd() * Math.PI * 2 });
 }
+/* Enfants jouant sur le sable près des châteaux de sable */
+[[187, 727], [322, 731], [-208, 683]].forEach(([cx, cz]) => {
+  for (let ki = 0; ki < 2; ki++) {
+    addPerson('beachkid', { x: cx + rr(-2.5, 2.5), z: cz + rr(-2.5, 2.5), ry: rnd() * 6.28, ph: rnd() * 6.28 });
+  }
+});
+/* Nageurs dans le lagon près des bouées */
 for (let k = 0; k < 22; k++) {
   const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  addPerson('swimmer', { x: p0[0] + rr(-30, 30), z: p0[1] + rr(10, 36), ph: rnd() * 6.28 });
+  addPerson('swimmer', { x: p0[0] + rr(-28, 28), z: p0[1] + rr(16, 42), ph: rnd() * 6.28 });
 }
 VOLLEY.forEach(([vx, vz, vry]) => {
   for (let s of [-1, 1]) {
@@ -6041,7 +6236,14 @@ for (let i = 0; i < 7; i++) {
   hNecks.setColorAt(i, cRoof.set(horseCol));
   hJocks.setColorAt(i, cRoof.set(jockCol));
   for (let lk = 0; lk < 4; lk++) hLegs.setColorAt(i * 4 + lk, cRoof.set(horseCol));
-  horses.push({ lane: 0.9 + (i / 7) * 0.08, theta: (i / 7) * Math.PI * 2, spd: rr(0.48, 0.58) });
+  horses.push({
+    lane: 0.91 + (i % 3) * 0.045,
+    targetLane: 0.91 + (i % 3) * 0.045,
+    theta: -i * 0.048 - rr(0, 0.02),
+    baseSpd: 0.52,
+    spd: 0.52,
+    surge: 0
+  });
 }
 hBodies.count = 7; hNecks.count = 7; hLegs.count = 28; hJocks.count = 7;
 [hBodies, hNecks, hLegs, hJocks].forEach(m => {
@@ -6335,12 +6537,18 @@ function updateWorld(dt) {
     const x0 = waterBase[i * 3], z0 = waterBase[i * 3 + 2];
     const gw = sampleGerstner(x0, z0, t);
 
+    // Amortissement progressif des ondes océaniques le long du littoral pour éliminer les artéfacts de découpe
+    let coastDamp = 1.0;
+    if (x0 > -480 && x0 < 680 && z0 > 560 && z0 < 780) {
+      coastDamp = Math.max(0, Math.min(1.0, (780 - z0) / 160 * (z0 > 680 ? 0.35 : 0.85)));
+    }
+
     pArr[i * 3]     = gw.x;
-    pArr[i * 3 + 1] = gw.y;
+    pArr[i * 3 + 1] = gw.y * coastDamp;
     pArr[i * 3 + 2] = gw.z;
 
     // Écume blanche éclatante sur les crêtes de vagues pointues
-    if (gw.steepness > 0.32 && gw.y > 0.42) {
+    if (gw.steepness > 0.32 && gw.y > 0.42 && coastDamp > 0.45) {
       cArr[i * 3]     = 1.0;
       cArr[i * 3 + 1] = 1.0;
       cArr[i * 3 + 2] = 1.0;
@@ -6361,13 +6569,14 @@ function updateWorld(dt) {
     let ptr = 0;
 
     shoreFoamData.forEach((seg) => {
-      // Ressac montant sur le sable doré
-      const wave1 = Math.sin(t * 1.7 + seg.phase);
+      // Ressac montant et descendant (Swash runup & backwash)
+      const wave1 = Math.sin(t * 1.5 + seg.phase);
       const surge = Math.max(0, wave1);
-      const backDist = -1.2;
-      const frontDist = 2.0 + surge * 12.0;
-      const yB = 0.64;
-      const yF = 0.72 + surge * 0.44;
+      const runupDist = THREE.MathUtils.lerp(18.0, -6.0, surge);
+      const backDist = runupDist + 2.5;
+      const frontDist = runupDist - 1.8;
+      const yB = 0.55 + Math.max(0, -runupDist) * 0.08;
+      const yF = 0.65 + Math.max(0, -runupDist) * 0.10 + surge * 0.15;
 
       const p0x = seg.ax + seg.nx * backDist,  p0z = seg.az + seg.nz * backDist;
       const p1x = seg.ax + seg.nx * frontDist, p1z = seg.az + seg.nz * frontDist;
@@ -6384,19 +6593,19 @@ function updateWorld(dt) {
 
       for (let k = 0; k < 6; k++) {
         const isFront = (k === 1 || k === 4 || k === 5);
-        fCol[ptr + k * 3]     = isFront ? 1.0 : 0.86;
+        fCol[ptr + k * 3]     = isFront ? 1.0 : 0.88;
         fCol[ptr + k * 3 + 1] = isFront ? 1.0 : 0.98;
         fCol[ptr + k * 3 + 2] = 1.0;
       }
       ptr += 18;
 
-      // Brisant / rouleau extérieur à 16m au large
-      const wave2 = Math.sin(t * 1.7 + seg.phase + 2.2);
+      // Brisant / rouleau extérieur dans le lagon turquoise
+      const wave2 = Math.sin(t * 1.5 + seg.phase + 2.0);
       const surge2 = Math.max(0, wave2);
-      const bDist2 = -16.5 - surge2 * 3.2;
-      const fDist2 = -11.5 - surge2 * 2.2;
-      const yB2 = 0.58;
-      const yF2 = 0.66 + surge2 * 0.35;
+      const bDist2 = 18.0 + surge2 * 3.5;
+      const fDist2 = 13.0 + surge2 * 2.2;
+      const yB2 = 0.52;
+      const yF2 = 0.65 + surge2 * 0.28;
 
       const q0x = seg.ax + seg.nx * bDist2, q0z = seg.az + seg.nz * bDist2;
       const q1x = seg.ax + seg.nx * fDist2, q1z = seg.az + seg.nz * fDist2;
@@ -6412,7 +6621,7 @@ function updateWorld(dt) {
       fPos[ptr+15] = q3x; fPos[ptr+16] = yF2; fPos[ptr+17] = q3z;
 
       for (let k = 0; k < 6; k++) {
-        fCol[ptr + k * 3]     = 0.95;
+        fCol[ptr + k * 3]     = 0.96;
         fCol[ptr + k * 3 + 1] = 1.0;
         fCol[ptr + k * 3 + 2] = 1.0;
       }
@@ -6430,6 +6639,12 @@ function updateWorld(dt) {
     fJetMesh.scale.set(jetScale, 1.0 + Math.sin(t * 10.0) * 0.28, jetScale);
     fJetMesh.rotation.y = t * 1.8;
 
+    if (typeof fCrownMesh !== 'undefined') {
+      const gH = 1.0 + Math.sin(t * 10.0) * 0.28;
+      fCrownMesh.position.y = 7.1 + 3.6 * gH;
+      fCrownMesh.scale.set(jetScale * 1.2, 1.0 + Math.sin(t * 12.0) * 0.2, jetScale * 1.2);
+    }
+
     fDrops.forEach(d => {
       d.mesh.position.set(
         Math.cos(t * 3.2 + d.ph) * d.rad,
@@ -6438,8 +6653,15 @@ function updateWorld(dt) {
       );
     });
 
+    if (typeof fStreams !== 'undefined') {
+      fStreams.forEach((st, si) => {
+        const sOsc = Math.sin(t * 10.0 + si * 0.785) * 0.08;
+        st.mesh.scale.set(1.0 + sOsc, 1.0 + sOsc * 0.5, 1.0 + sOsc);
+      });
+    }
+
     fCascades.forEach((c, ci) => {
-      const cOsc = Math.sin(t * 13.0 + ci * 1.5) * 0.08;
+      const cOsc = Math.sin(t * 12.0 + ci * 0.785) * 0.10;
       c.mesh.scale.set(1.0 + cOsc, 1.0, 1.0 + cOsc);
     });
 
@@ -6448,10 +6670,28 @@ function updateWorld(dt) {
       s.mesh.scale.set(sp, 1.0, sp);
     });
 
+    if (typeof fRipples !== 'undefined') {
+      fRipples.forEach(r => {
+        const ripT = (t * 1.8 + r.phase) % 3.0;
+        const scale = 1.0 + ripT * 2.2;
+        r.mesh.scale.set(scale, scale, 1);
+        r.mesh.material.opacity = Math.max(0, 0.65 * (1.0 - ripT / 3.0));
+      });
+    }
+
     if (typeof fBasinWater !== 'undefined') {
       fBasinWater.position.y = 0.96 + Math.sin(t * 3.8) * 0.035;
       fBasinWater.rotation.y = t * 0.04;
     }
+  }
+
+  /* 3.2 Bouées gonflables du lagon (Donuts & Flamants) */
+  if (typeof lagoonFloats !== 'undefined') {
+    lagoonFloats.forEach(f => {
+      f.mesh.position.y = 0.40 + Math.sin(t * 2.2 + f.ph) * 0.14;
+      f.mesh.rotation.x = Math.sin(t * 1.6 + f.ph) * 0.08;
+      f.mesh.rotation.z = Math.cos(t * 1.6 + f.ph) * 0.08;
+    });
   }
 
   /* 3.5 Cycle automatique des feux tricolores (24 secondes : 11s vert, 2.5s orange, 10.5s rouge) */
@@ -6578,10 +6818,20 @@ function updateWorld(dt) {
       setFull(pLimbsR, p.idx, d.x, y, d.z, -stroke, d.ph, 0);
     } else if (p.kind === 'lounger') {
       const d = p.data;
-      setFull(pBodies, p.idx, d.x, BEACH_Y + 0.22, d.z, -0.55, d.ry, 0);
-      setFull(pHeads, p.idx, d.x, BEACH_Y + 0.44, d.z, -0.25, d.ry, 0);
-      setTRS(pLimbsL, p.idx, d.x, BEACH_Y + 0.14, d.z, d.ry);
-      setTRS(pLimbsR, p.idx, d.x, BEACH_Y + 0.14, d.z, d.ry);
+      const yL = d.y ?? (BEACH_Y + 0.22);
+      const breathe = Math.sin(t * 1.8 + p.idx) * 0.02;
+      setFull(pBodies, p.idx, d.x, yL + 0.22 + breathe, d.z, -0.55, d.ry, 0);
+      setFull(pHeads, p.idx, d.x, yL + 0.44 + breathe, d.z, -0.25, d.ry, 0);
+      setTRS(pLimbsL, p.idx, d.x, yL + 0.14, d.z, d.ry);
+      setTRS(pLimbsR, p.idx, d.x, yL + 0.14, d.z, d.ry);
+    } else if (p.kind === 'beachkid') {
+      const d = p.data;
+      const dig = Math.sin(t * 5.5 + d.ph) * 0.35;
+      const yKid = 1.35;
+      setFull(pBodies, p.idx, d.x, yKid + 0.15, d.z, 0.42 + dig * 0.15, d.ry, 0, 0.72, 0.72, 0.72);
+      setFull(pHeads, p.idx, d.x, yKid + 0.35, d.z, 0.35, d.ry, 0, 0.72, 0.72, 0.72);
+      setFull(pLimbsL, p.idx, d.x, yKid + 0.5, d.z, dig, d.ry, 0, 0.72, 0.72, 0.72);
+      setFull(pLimbsR, p.idx, d.x, yKid + 0.5, d.z, -dig, d.ry, 0, 0.72, 0.72, 0.72);
     } else if (p.kind === 'volley') {
       const d = p.data;
       const jump = Math.max(0, Math.sin(t * 4.2 + d.ph)) * 1.55;
@@ -6604,21 +6854,35 @@ function updateWorld(dt) {
     b.mesh.rotation.y = t * 4;
   });
 
-  /* 6. Chevaux et Jockeys : Grand Galop de Course (Rotary Gallop) */
+  /* 6. Chevaux et Jockeys : Grand Galop de Course (Rotary Gallop en Peloton) */
   horses.forEach((h, i) => {
+    // Tactique de course : accélération / dépassement dynamique & décalage de couloir
+    const surge = Math.sin(t * 0.5 + i * 1.7) * 0.035 + Math.sin(t * 1.2 + i * 2.3) * 0.015;
+    h.spd = h.baseSpd + surge;
     h.theta = (h.theta + dt * h.spd) % (Math.PI * 2);
+
+    h.targetLane = 0.91 + (i % 3) * 0.045 + Math.sin(t * 0.3 + i * 1.2) * 0.02;
+    h.lane = THREE.MathUtils.lerp(h.lane, h.targetLane, Math.min(1.0, dt * 1.5));
+
     const x = HIPPO.x + Math.cos(h.theta) * (HIPPO.rx * h.lane);
     const z = HIPPO.z + Math.sin(h.theta) * (HIPPO.rz * h.lane);
-    const ry = -Math.atan2(Math.sin(h.theta) * HIPPO.rz, Math.cos(h.theta) * HIPPO.rx) - Math.PI / 2;
+
+    // Tangente exacte le long de l'ovale dans le sens de la course
+    const dx = -Math.sin(h.theta) * HIPPO.rx;
+    const dz = Math.cos(h.theta) * HIPPO.rz;
+    const ry = Math.atan2(dx, dz);
+
+    // Inclinaison centrifuge naturelle dans les virages
+    const bankRoll = -0.12 * Math.sin(h.theta);
 
     const gallopFreq = t * 18 * (h.spd / 0.52) + i * 1.8;
     const bodyBounce = Math.abs(Math.sin(gallopFreq)) * 0.48;
     const bodyPitch = Math.sin(gallopFreq) * 0.14;
     const headBob = -Math.sin(gallopFreq) * 0.16;
 
-    setFull(hBodies, i, x, 3.06 + bodyBounce, z, bodyPitch, ry, 0);
-    setFull(hNecks, i, x, 3.06 + bodyBounce, z, bodyPitch + headBob, ry, 0);
-    setFull(hJocks, i, x, 3.06 + bodyBounce, z, bodyPitch * 0.7, ry, 0);
+    setFull(hBodies, i, x, 3.06 + bodyBounce, z, bodyPitch, ry, bankRoll);
+    setFull(hNecks, i, x, 3.06 + bodyBounce, z, bodyPitch + headBob, ry, bankRoll);
+    setFull(hJocks, i, x, 3.06 + bodyBounce, z, bodyPitch * 0.7, ry, bankRoll);
 
     const legFL = Math.sin(gallopFreq) * 0.75;
     const legFR = Math.sin(gallopFreq + 0.8) * 0.68;
@@ -6634,7 +6898,7 @@ function updateWorld(dt) {
     legOffsets.forEach(([ox, oy, oz, rotX], lk) => {
       _m4.makeRotationY(ry);
       _v3.set(ox, oy, oz).applyMatrix4(_m4).add(_v3b.set(x, 3.06 + bodyBounce, z));
-      setFull(hLegs, i * 4 + lk, _v3.x, _v3.y, _v3.z, rotX, ry, 0);
+      setFull(hLegs, i * 4 + lk, _v3.x, _v3.y, _v3.z, rotX, ry, bankRoll);
     });
   });
   hBodies.instanceMatrix.needsUpdate = true;
