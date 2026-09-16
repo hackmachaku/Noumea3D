@@ -3104,9 +3104,11 @@ const PAL = {
   ],
   roofMansard: 0x2b5272,
 
-  /* Place Minipoly & Fontaine */
+  /* Place Minipoly & Fontaine Céleste Historique */
   terracotta: 0xc8593b, terracottaLight: 0xdc6f52,
+  fountainStone: 0xede5d5, fountainStoneDark: 0xcac1b0, fountainCeleste: 0xf8f4ec,
   fountainWater: 0x24e6de, parkPaving: 0xede4d4,
+  portCraneYellow: 0xf59e0b, portCraneDark: 0xd97706, portCraneCabin: 0x1e293b, portCable: 0x94a3b8,
   fenceIron: 0x1e242a, fenceBrick: 0xb8422a, fenceCap: 0xfbf6ec,
 
   /* Végétation stylisée enrichie (6 espèces) */
@@ -3507,15 +3509,85 @@ const SHORE_CITRONS = [[-392, 620], [-330, 640], [-280, 652], [-225, 668], [-170
 const SHORE_VATA = [[50, 702], [130, 708], [200, 712], [270, 715], [340, 716], [408, 712], [470, 706], [524, 698], [578, 688]];
 
 const BEACH_Y = 3.06;
-function beach(shore, back, front) {
-  return [
-    slopeGeo(shore, back, BEACH_Y, 0, BEACH_Y - 0.01, PAL.sand),
-    slopeGeo(shore, 0, BEACH_Y - 0.01, front, 0.58, PAL.sand)
-  ];
+function beachReliefGeo(pts, backDist, frontDist, yBack, yFront) {
+  const N = pts.length;
+  const vNorms = [];
+  for (let i = 0; i < N; i++) {
+    let nx = 0, nz = 0;
+    if (i > 0) {
+      const dx1 = pts[i][0] - pts[i - 1][0], dz1 = pts[i][1] - pts[i - 1][1];
+      const l1 = Math.hypot(dx1, dz1) || 1;
+      nx += -dz1 / l1; nz += dx1 / l1;
+    }
+    if (i < N - 1) {
+      const dx2 = pts[i + 1][0] - pts[i][0], dz2 = pts[i + 1][1] - pts[i][1];
+      const l2 = Math.hypot(dx2, dz2) || 1;
+      nx += -dz2 / l2; nz += dx2 / l2;
+    }
+    const ln = Math.hypot(nx, nz) || 1;
+    vNorms.push([nx / ln, nz / ln]);
+  }
+  const ROWS = 6;
+  const grid = [];
+  const cSand = new THREE.Color(PAL.sand);
+  const cDune = new THREE.Color(PAL.sandDark);
+  const cWet = new THREE.Color(PAL.wetSand);
+  const cWetDark = new THREE.Color(PAL.wetSandDark);
+
+  for (let r = 0; r <= ROWS; r++) {
+    const v = r / ROWS;
+    const dist = THREE.MathUtils.lerp(-backDist, frontDist, v);
+    const rowPts = [];
+    for (let i = 0; i < N; i++) {
+      const p = pts[i], n = vNorms[i];
+      const px = p[0] + n[0] * dist, pz = p[1] + n[1] * dist;
+      const baseY = THREE.MathUtils.lerp(yBack, yFront, Math.pow(v, 1.15));
+      const duneNoise = (v < 0.75)
+        ? (0.22 * Math.sin(px * 0.05 + pz * 0.03) + 0.10 * Math.cos(px * 0.12 - pz * 0.08)) * (1.0 - v * 0.75)
+        : 0;
+      const y = Math.max(0.42, baseY + duneNoise);
+
+      const col = new THREE.Color();
+      if (v < 0.40) {
+        const noise = Math.sin(px * 0.35 + pz * 0.4) * 0.03;
+        col.copy(cDune).lerp(cSand, (v / 0.40) + noise);
+      } else if (v < 0.72) {
+        const t2 = (v - 0.40) / 0.32;
+        col.copy(cSand).lerp(cWet, t2);
+      } else {
+        const t3 = (v - 0.72) / 0.28;
+        col.copy(cWet).lerp(cWetDark, t3);
+      }
+      rowPts.push({ x: px, y, z: pz, col });
+    }
+    grid.push(rowPts);
+  }
+
+  const pos = [], cols = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let i = 0; i < N - 1; i++) {
+      const p00 = grid[r][i],     p01 = grid[r][i + 1];
+      const p10 = grid[r + 1][i], p11 = grid[r + 1][i + 1];
+
+      pos.push(p00.x, p00.y, p00.z,  p10.x, p10.y, p10.z,  p01.x, p01.y, p01.z);
+      cols.push(p00.col.r, p00.col.g, p00.col.b,  p10.col.r, p10.col.g, p10.col.b,  p01.col.r, p01.col.g, p01.col.b);
+
+      pos.push(p01.x, p01.y, p01.z,  p10.x, p10.y, p10.z,  p11.x, p11.y, p11.z);
+      cols.push(p01.col.r, p01.col.g, p01.col.b,  p10.col.r, p10.col.g, p10.col.b,  p11.col.r, p11.col.g, p11.col.b);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  const uv = new Float32Array(pos.length / 3 * 2);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return geo;
 }
+
 const sandParts = [
-  ...beach(SHORE_CITRONS, 32, 42),
-  ...beach(SHORE_VATA, 36, 44)
+  beachReliefGeo(SHORE_CITRONS, 32, 42, BEACH_Y, 0.48),
+  beachReliefGeo(SHORE_VATA, 36, 44, BEACH_Y, 0.48)
 ];
 
 /* Générateur d'îlot tropical facetté en 3D (Style Minipoly Référence Captures 3, 4 & 5) */
@@ -3643,21 +3715,11 @@ function sandCastleGeo(x, y, z, ry = 0) {
   return mergeGeometries(parts, false);
 }
 
-/* Bande continue de sable mouillé satiné (Wet Sand Sheen) */
-const wetSandParts = [
-  slopeGeo(SHORE_CITRONS, 14, 1.55, 28, 0.25, PAL.wetSand),
-  slopeGeo(SHORE_VATA, 16, 1.55, 30, 0.25, PAL.wetSand)
-];
-const wetSandMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
-const wetSandMesh = new THREE.Mesh(mergeGeometries(wetSandParts, false), wetSandMat);
-wetSandMesh.position.y = 0.04;
-scene.add(wetSandMesh);
-
 /* Système dynamique d'écume blanche de bord de plage curviligne (Shoreline Surf & Waves) */
 const shoreFoamData = [];
 const shoreCurves = [
-  resample(SHORE_CITRONS, 5.5, false),
-  resample(SHORE_VATA, 5.5, false)
+  resample(SHORE_CITRONS, 4.0, false),
+  resample(SHORE_VATA, 4.0, false)
 ];
 
 shoreCurves.forEach((pts, sIdx) => {
@@ -4223,7 +4285,6 @@ function facadeTexture(lit) {
       const x = i * cw + cw * 0.15, y = j * ch + ch * 0.18;
       const w = cw * 0.70, h = ch * 0.48;
       if (lit) {
-        if (rnd() > 0.42) continue;
         g.fillStyle = '#ffd574';
         g.fillRect(x, y, w, h);
       } else {
@@ -4259,14 +4320,18 @@ const FACADE_MATS = [];
 function facadeMaterial() {
   const m = new THREE.MeshLambertMaterial({
     vertexColors: true, flatShading: true,
-    map: TEX_FACADE, emissiveMap: TEX_LIT, emissive: 0xffffff, emissiveIntensity: 0
+    map: TEX_FACADE, emissiveMap: TEX_LIT,
+    emissive: new THREE.Color(0x000000)
   });
+  m.userData = { nightGlow: 0, time: 0 };
   m.onBeforeCompile = sh => {
+    sh.uniforms.uNightGlow = { value: m.userData.nightGlow || 0.0 };
+    sh.uniforms.uTime = { value: 0.0 };
     sh.vertexShader = 'attribute vec2 uvScale;\n' + sh.vertexShader.replace(
       '#include <uv_vertex>',
       '#include <uv_vertex>\n\tvMapUv *= uvScale;\n\tvEmissiveMapUv *= uvScale;'
     );
-    sh.fragmentShader = sh.fragmentShader.replace(
+    sh.fragmentShader = 'uniform float uNightGlow;\nuniform float uTime;\n' + sh.fragmentShader.replace(
       '#include <map_fragment>',
       `
       #ifdef USE_MAP
@@ -4280,7 +4345,27 @@ function facadeMaterial() {
         }
       #endif
       `
+    ).replace(
+      '#include <emissivemap_fragment>',
+      `
+      #ifdef USE_EMISSIVEMAP
+        vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );
+        if (emissiveColor.r > 0.2) {
+          vec2 winCoord = floor(vEmissiveMapUv * 2.0);
+          float winHash = fract(sin(dot(winCoord, vec2(12.9898, 78.233))) * 43758.5453);
+          float isLit = winHash > 0.35 ? 1.0 : 0.05;
+          if (winHash > 0.74) {
+            float cycle = sin(uTime * 0.45 + winHash * 25.0);
+            if (cycle < -0.15) isLit = 0.05;
+          }
+          totalEmissiveRadiance *= emissiveColor.rgb * isLit * 2.2;
+        } else {
+          totalEmissiveRadiance = vec3(0.0);
+        }
+      #endif
+      `
     );
+    m.userData.shader = sh;
   };
   FACADE_MATS.push(m);
   return m;
@@ -4607,16 +4692,59 @@ const fx = -130, fz = -285;
     L.push(prep(orb, PAL.fenceCap));
   });
 
-  L.push(cylG(12.8, 13.5, 0.45, 8, PAL.terracotta, fx, 3.25, fz));
-  L.push(cylG(11.8, 12.5, 0.5, 8, PAL.terracottaLight, fx, 3.65, fz));
-  L.push(cylG(12.2, 11.6, 0.45, 8, PAL.terracotta, fx, 4.05, fz));
+  /* Architecture Monumentale Néo-classique de la Fontaine Céleste (Paul Mahoux, 1893) */
+  // 1. Soubassement à 3 marches octogonales concentriques en pierre de taille
+  L.push(cylG(15.2, 15.6, 0.22, 8, PAL.fountainStoneDark, fx, 3.11, fz));
+  L.push(cylG(14.2, 14.6, 0.22, 8, PAL.fountainStone, fx, 3.33, fz));
+  L.push(cylG(13.2, 13.6, 0.22, 8, PAL.fountainStoneDark, fx, 3.55, fz));
 
-  L.push(cylG(2.2, 2.6, 4.8, 8, PAL.terracotta, fx, 3 + 2.5, fz));
-  L.push(cylG(2.7, 1.8, 0.9, 8, PAL.terracottaLight, fx, 3 + 5.0, fz));
-  L.push(cylG(0.9, 1.4, 1.6, 8, PAL.terracotta, fx, 3 + 6.1, fz));
-  const finial = new THREE.SphereGeometry(0.55, 8, 6);
-  finial.translate(fx, 3 + 7.1, fz);
-  L.push(prep(finial, PAL.terracottaLight));
+  // 2. Grand bassin octogonal extérieur (diamètre ~12.5m) avec margelle profilée
+  L.push(cylG(12.4, 12.8, 0.55, 8, PAL.fountainStone, fx, 3.92, fz));
+  L.push(cylG(12.6, 12.2, 0.22, 8, PAL.fountainStoneDark, fx, 4.30, fz));
+
+  // 3. Piédestal néo-classique central octogonal avec corniches et bossages
+  L.push(cylG(3.4, 3.8, 0.65, 8, PAL.fountainStoneDark, fx, 3 + 1.25, fz));
+  L.push(cylG(2.6, 2.9, 1.80, 8, PAL.fountainStone, fx, 3 + 2.45, fz));
+  L.push(cylG(3.0, 2.6, 0.35, 8, PAL.fountainStoneDark, fx, 3 + 3.50, fz));
+
+  // 4 Mascarons cracheurs d'eau aux 4 points cardinaux du piédestal
+  for (let m = 0; m < 4; m++) {
+    const ma = (m / 4) * Math.PI * 2;
+    const mx = fx + Math.cos(ma) * 1.5, mz = fz + Math.sin(ma) * 1.5;
+    L.push(bx(0.48, 0.48, 0.35, PAL.fountainStoneDark, mx, 3 + 2.65, mz, ma));
+    L.push(cylG(0.12, 0.16, 0.35, 6, 0x94a3b8, mx + Math.cos(ma) * 0.25, 3 + 2.60, mz + Math.sin(ma) * 0.25, ma + Math.PI / 2));
+  }
+
+  // 4. Bassin intermédiaire en pierre
+  L.push(cylG(4.2, 3.8, 0.45, 8, PAL.fountainStone, fx, 3 + 3.90, fz));
+  L.push(cylG(4.4, 4.1, 0.18, 8, PAL.fountainStoneDark, fx, 3 + 4.20, fz));
+
+  // 5. Fût cannelé / balustre central
+  L.push(cylG(1.5, 1.9, 1.6, 12, PAL.fountainStone, fx, 3 + 5.0, fz));
+  L.push(cylG(2.2, 1.4, 0.45, 12, PAL.fountainStoneDark, fx, 3 + 6.0, fz));
+
+  // 6. Vasque circulaire supérieure évasée (diamètre 5.2m)
+  L.push(cylG(5.2, 2.4, 0.75, 16, PAL.fountainStone, fx, 3 + 6.6, fz));
+  L.push(cylG(5.4, 5.0, 0.22, 16, PAL.fountainStoneDark, fx, 3 + 7.05, fz));
+
+  // 7. Socle de la statue de Céleste
+  L.push(cylG(1.3, 1.5, 0.65, 8, PAL.fountainStone, fx, 3 + 7.45, fz));
+
+  // 8. Statue sommitale allégorique de CÉLESTE (Paul Mahoux, 1893)
+  const celY = 3 + 7.8;
+  L.push(cylG(0.65, 0.85, 1.1, 8, PAL.fountainCeleste, fx, celY + 0.55, fz));
+  L.push(bx(0.55, 0.72, 0.38, PAL.fountainCeleste, fx, celY + 1.45, fz, 0.12));
+  const cHead = new THREE.DodecahedronGeometry(0.24, 0);
+  cHead.translate(fx, celY + 1.95, fz);
+  L.push(prep(cHead, PAL.fountainCeleste));
+  const cBun = new THREE.SphereGeometry(0.14, 6, 5);
+  cBun.translate(fx, celY + 2.05, fz - 0.18);
+  L.push(prep(cBun, PAL.fountainCeleste));
+  L.push(bx(0.18, 0.65, 0.18, PAL.fountainCeleste, fx - 0.36, celY + 1.4, fz, -0.25));
+  L.push(bx(0.18, 0.65, 0.18, PAL.fountainCeleste, fx + 0.36, celY + 1.55, fz, 0.45));
+  const ampX = fx + 0.42, ampY = celY + 1.45, ampZ = fz + 0.15;
+  L.push(cylG(0.22, 0.32, 0.65, 8, PAL.fountainStoneDark, ampX, ampY, ampZ, 0.65));
+  L.push(coneG(0.28, 0.35, 8, PAL.fountainStoneDark, ampX + 0.15, ampY - 0.25, ampZ + 0.1, 1.85));
 
   for (let b = 0; b < 8; b++) {
     const a = (b / 8) * Math.PI * 2;
@@ -4665,17 +4793,69 @@ const fx = -130, fz = -285;
   L.push(coneG(2.6, 2.4, 8, 0xef4444, -808, 16.4, 122));
 })();
 
-/* 7.5 Port de commerce : grues, conteneurs, cargo */
-(() => {
-  [[-690, 205], [-690, 300]].forEach((c, k) => {
-    const [x, z] = c;
-    L.push(bx(10, 3, 10, 0xdfd6c6, x, 4.5, z));
-    L.push(bx(3.2, 38, 3.2, 0xf59e0b, x, 3 + 21, z));
-    L.push(bx(2.6, 26, 2.6, 0xf59e0b, x - 7, 3 + 15, z));
-    L.push(bx(3, 2.6, 40, 0xf59e0b, x, 3 + 40, z + (k ? 8 : -8)));
-    L.push(bx(0.6, 14, 0.6, 0xcfcfd4, x, 3 + 32, z + (k ? 26 : -26)));
-    L.push(bx(3, 2.2, 3, 0x8b8b93, x, 3 + 25, z + (k ? 26 : -26)));
+/* 7.5 Port de commerce : grues portuaires mobiles animées, conteneurs, cargo */
+const portCranes = [];
+[[-690, 215, 0.0], [-690, 295, 2.5]].forEach(([cx, cz, phase], k) => {
+  const craneGroup = new THREE.Group();
+  craneGroup.position.set(cx, ROAD_Y, cz);
+  scene.add(craneGroup);
+
+  const cParts = [];
+  cParts.push(bx(12, 1.8, 14, 0x334155, 0, 0.9, 0));
+  [-4.5, 4.5].forEach(px => {
+    [-5.5, 5.5].forEach(pz => {
+      cParts.push(segCyl(px * 1.1, 1.8, pz * 1.1, px * 0.45, 22, pz * 0.45, 0.55, 0.45, 6, PAL.portCraneYellow));
+      cParts.push(bx(2.2, 1.2, 2.8, 0x1e293b, px * 1.1, 0.6, pz * 1.1));
+    });
   });
+  cParts.push(bx(9, 2.2, 9, PAL.portCraneYellow, 0, 23.1, 0));
+  cParts.push(bx(4.5, 3.6, 4.5, PAL.portCraneCabin, -2.5, 25.8, 2.0));
+  cParts.push(bx(4.6, 1.8, 2.8, 0x22d3ee, -2.5, 26.2, 2.2));
+  cParts.push(bx(4.2, 18, 4.2, PAL.portCraneYellow, 2.0, 32, 0));
+  cParts.push(segCyl(2.0, 41, 0, -45, 29, 0, 0.14, 0.14, 4, 0x94a3b8));
+  cParts.push(segCyl(2.0, 41, 0, 18, 29, 0, 0.14, 0.14, 4, 0x94a3b8));
+  cParts.push(bx(74, 3.2, 3.6, PAL.portCraneYellow, -18, 27.8, 0));
+  craneGroup.add(mergedMesh(cParts));
+
+  const trolleyGroup = new THREE.Group();
+  trolleyGroup.position.set(-15, 26.0, 0);
+  const tMesh = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.8, 4.2), new THREE.MeshLambertMaterial({ color: 0x334155, flatShading: true }));
+  trolleyGroup.add(tMesh);
+
+  const spreaderGroup = new THREE.Group();
+  spreaderGroup.position.set(0, -10, 0);
+  const spMesh = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.8, 4.8), new THREE.MeshLambertMaterial({ color: 0xd97706, flatShading: true }));
+  spreaderGroup.add(spMesh);
+
+  const cableMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8 });
+  const cableGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 4);
+  const cableMesh = new THREE.Mesh(cableGeo, cableMat);
+  cableMesh.position.set(0, -5, 0);
+  cableMesh.scale.set(1, 10, 1);
+  trolleyGroup.add(cableMesh);
+
+  const hoistedContGeo = new THREE.BoxGeometry(12, 5.0, 4.6);
+  const hoistedContMat = new THREE.MeshLambertMaterial({ color: k === 0 ? 0xef4444 : 0x0284c7, flatShading: true });
+  const hoistedContMesh = new THREE.Mesh(hoistedContGeo, hoistedContMat);
+  hoistedContMesh.position.y = -2.9;
+  spreaderGroup.add(hoistedContMesh);
+
+  trolleyGroup.add(spreaderGroup);
+  craneGroup.add(trolleyGroup);
+
+  portCranes.push({
+    group: craneGroup,
+    trolley: trolleyGroup,
+    spreader: spreaderGroup,
+    cables: cableMesh,
+    container: hoistedContMesh,
+    phase,
+    baseX: cx,
+    baseZ: cz
+  });
+});
+
+(() => {
   const sx = -822, sz = 255;
   L.push(bx(20, 9, 86, 0x991b1b, sx, 2.5, sz));
   L.push(bx(21, 1.4, 88, 0x475569, sx, 7.4, sz));
@@ -4928,100 +5108,101 @@ for (let pil = 0; pil < 9; pil++) {
 L.push(bx(5.5, 3.4, 5.5, PAL.wallA, 392, 2.9, 718));
 
 const lampPos = [];
+/* 1. Promenade Roger Laroque (Baie des Citrons & Anse Vata) */
 for (let i = 0; i < PROMENADE.length - 1; i++) {
   const a = PROMENADE[i], b = PROMENADE[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-  for (let d = 0; d < len; d += 50) {
+  for (let d = 0; d < len; d += 45) {
     const t = d / len;
     lampPos.push([a[0] + (b[0] - a[0]) * t - 6, a[1] + (b[1] - a[1]) * t - 9]);
   }
 }
+
+/* 2. Centre-ville & Avenues (Avenue Foch, Rue de Sébastopol, etc.) */
+AX.forEach((x, col) => {
+  if (col === 0 || col === AX.length - 1) return;
+  for (let z = AZ[0] + 15; z < AZ[AZ.length - 1] - 15; z += 55) {
+    lampPos.push([x - 8.2, z]);
+    lampPos.push([x + 8.2, z]);
+  }
+});
+
+/* 3. Place des Cocotiers (Pourtour paysagé) */
+[
+  [-215, -315], [-215, -255], [-45, -315], [-45, -255],
+  [-170, -325], [-90, -325], [-170, -245], [-90, -245]
+].forEach(([lx, lz]) => lampPos.push([lx, lz]));
+
+/* 4. Port Moselle & Quai de Plaisance */
+for (let qz = -20; qz <= 120; qz += 35) {
+  lampPos.push([-568, qz]);
+}
+
 lampPos.forEach(([x, z]) => {
-  L.push(cylG(0.18, 0.26, 7.8, 5, 0x3d444e, x, 3 + 3.9, z));
-  L.push(bx(0.85, 0.35, 0.85, 0x3d444e, x, 3 + 7.8, z));
-  L.push(bx(0.55, 0.55, 0.55, PAL.lampGlow, x, 3 + 7.5, z));
+  const ly = heightAt(x, z);
+  L.push(cylG(0.18, 0.26, 7.8, 5, 0x3d444e, x, ly + 3.9, z));
+  L.push(bx(0.85, 0.35, 0.85, 0x3d444e, x, ly + 7.8, z));
+  L.push(bx(0.55, 0.55, 0.55, PAL.lampGlow, x, ly + 7.5, z));
 });
 scene.add(mergedMesh(L));
 
-const glowGeo = new THREE.SphereGeometry(0.95, 6, 5);
+const glowGeo = new THREE.SphereGeometry(1.2, 6, 5);
 const lampGlow = instanced(glowGeo, lampPos.length + 12, { basic: true, color: PAL.lampGlow });
-lampPos.forEach(([x, z], i) => setTRS(lampGlow, i, x, 3 + 7.5, z, 0));
+lampPos.forEach(([x, z], i) => {
+  const ly = heightAt(x, z);
+  setTRS(lampGlow, i, x, ly + 7.5, z, 0);
+});
 lampGlow.count = lampPos.length;
 lampGlow.instanceMatrix.needsUpdate = true;
 scene.add(lampGlow);
 
 /* ---------------------------------------------------------------------
-   7.8 FONTAINE ANIMÉE DYNAMIQUE DE LA PLACE DES COCOTIERS
+   7.8 FONTAINE ANIMÉE DYNAMIQUE DE LA PLACE DES COCOTIERS (FONTAINE CÉLESTE)
    ------------------------------------------------------------------ */
 const fountainGroup = new THREE.Group();
 fountainGroup.position.set(fx, 3.0, fz);
 scene.add(fountainGroup);
 
-/* Disque d'eau dynamique du grand bassin inférieur */
+/* Disque d'eau dynamique du grand bassin inférieur octogonal */
 const fBasinMat = new THREE.MeshLambertMaterial({
   color: PAL.fountainWater,
   transparent: true,
   opacity: 0.90,
   flatShading: true
 });
-const fBasinGeo = new THREE.CylinderGeometry(11.2, 11.2, 0.3, 16);
+const fBasinGeo = new THREE.CylinderGeometry(12.0, 12.0, 0.35, 8);
 const fBasinWater = new THREE.Mesh(fBasinGeo, fBasinMat);
-fBasinWater.position.y = 0.96;
+fBasinWater.position.y = 0.95;
 fountainGroup.add(fBasinWater);
 
-/* Jet d'eau central jaillissant (Geyser vertical à haute pression) */
-const fJetMat = new THREE.MeshLambertMaterial({
-  color: 0x6ee7b7,
-  transparent: true,
-  opacity: 0.92,
-  flatShading: true
-});
-const fJetGeo = new THREE.CylinderGeometry(0.24, 0.85, 3.6, 8);
-fJetGeo.translate(0, 1.8, 0);
-const fJetMesh = new THREE.Mesh(fJetGeo, fJetMat);
-fJetMesh.position.y = 7.1;
-fountainGroup.add(fJetMesh);
+/* Nappe d'eau du bassin intermédiaire */
+const fMidWater = new THREE.Mesh(new THREE.CylinderGeometry(3.8, 3.8, 0.22, 8), fBasinMat);
+fMidWater.position.y = 4.15;
+fountainGroup.add(fMidWater);
 
-/* Couronne d'embruns sommitales en éventail */
-const fCrownMat = new THREE.MeshLambertMaterial({
-  color: 0xffffff,
-  transparent: true,
-  opacity: 0.86,
-  flatShading: true
-});
-const fCrownGeo = new THREE.ConeGeometry(1.5, 1.1, 8);
-fCrownGeo.rotateX(Math.PI);
-const fCrownMesh = new THREE.Mesh(fCrownGeo, fCrownMat);
-fCrownMesh.position.y = 10.6;
-fountainGroup.add(fCrownMesh);
+/* Nappe d'eau de la vasque supérieure */
+const fTopWater = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, 0.18, 16), fBasinMat);
+fTopWater.position.y = 6.95;
+fountainGroup.add(fTopWater);
 
-/* Gouttelettes et gerbes d'eau sommitales */
-const fDrops = [];
-const fDropMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
-for (let d = 0; d < 8; d++) {
-  const dm = new THREE.Mesh(new THREE.DodecahedronGeometry(0.26, 0), fDropMat);
-  fountainGroup.add(dm);
-  fDrops.push({ mesh: dm, ph: (d / 8) * Math.PI * 2, rad: 0.75 + (d % 4) * 0.38 });
+/* Chute d'eau continue depuis l'amphore de Céleste vers la vasque */
+const fAmphoraGeo = segCyl(0.52, 9.15, 0.22, 0.85, 7.05, 0.35, 0.14, 0.28, 5, 0xa7f3d0);
+const fAmphoraStream = new THREE.Mesh(fAmphoraGeo, new THREE.MeshLambertMaterial({ color: 0xa7f3d0, transparent: true, opacity: 0.92, flatShading: true }));
+fountainGroup.add(fAmphoraStream);
+
+/* 4 Jets paraboliques jaillissant des 4 mascarons sculptés du piédestal */
+const fMascaronStreams = [];
+const fMascMat = new THREE.MeshLambertMaterial({ color: 0xa7f3d0, transparent: true, opacity: 0.88, flatShading: true });
+for (let m = 0; m < 4; m++) {
+  const ma = (m / 4) * Math.PI * 2;
+  const sx = Math.cos(ma) * 1.7, sz = Math.sin(ma) * 1.7;
+  const tx = Math.cos(ma) * 6.5, tz = Math.sin(ma) * 6.5;
+  const mGeo = segCyl(sx, 2.65, sz, tx, 1.05, tz, 0.16, 0.32, 5, 0xa7f3d0);
+  const mMesh = new THREE.Mesh(mGeo, fMascMat);
+  fountainGroup.add(mMesh);
+  fMascaronStreams.push({ mesh: mMesh, a: ma, sx, sz, tx, tz });
 }
 
-/* 8 Jets arqués jaillissant du socle central vers la vasque supérieure */
-const fStreams = [];
-const fStreamMat = new THREE.MeshLambertMaterial({
-  color: 0xa7f3d0,
-  transparent: true,
-  opacity: 0.88,
-  flatShading: true
-});
-for (let s = 0; s < 8; s++) {
-  const a = (s / 8) * Math.PI * 2;
-  const sx = Math.cos(a) * 0.6, sz = Math.sin(a) * 0.6;
-  const tx = Math.cos(a) * 3.4, tz = Math.sin(a) * 3.4;
-  const stGeo = segCyl(sx, 7.2, sz, tx, 4.9, tz, 0.18, 0.32, 5, 0xa7f3d0);
-  const stMesh = new THREE.Mesh(stGeo, fStreamMat);
-  fountainGroup.add(stMesh);
-  fStreams.push({ mesh: stMesh, a });
-}
-
-/* 8 Cascades arquées dynamiques s'écoulant de la vasque vers le grand bassin */
+/* 8 Cascades d'eau déversantes s'écoulant de la lèvre de la vasque supérieure */
 const fCascades = [];
 const fCasMat = new THREE.MeshLambertMaterial({
   color: 0xa7f3d0,
@@ -5031,9 +5212,9 @@ const fCasMat = new THREE.MeshLambertMaterial({
 });
 for (let s = 0; s < 8; s++) {
   const a = (s / 8) * Math.PI * 2 + Math.PI / 8;
-  const sx = Math.cos(a) * 3.2, sz = Math.sin(a) * 3.2;
-  const tx = Math.cos(a) * 7.6, tz = Math.sin(a) * 7.6;
-  const cGeo = segCyl(sx, 4.8, sz, tx, 1.0, tz, 0.52, 1.15, 6, 0xa7f3d0);
+  const sx = Math.cos(a) * 5.0, sz = Math.sin(a) * 5.0;
+  const tx = Math.cos(a) * 8.5, tz = Math.sin(a) * 8.5;
+  const cGeo = segCyl(sx, 6.85, sz, tx, 1.02, tz, 0.45, 1.05, 6, 0xa7f3d0);
   const cMesh = new THREE.Mesh(cGeo, fCasMat);
   fountainGroup.add(cMesh);
   fCascades.push({ mesh: cMesh, a, sx, sz, tx, tz });
@@ -5049,11 +5230,25 @@ const fSplashMat = new THREE.MeshLambertMaterial({
 });
 for (let s = 0; s < 8; s++) {
   const a = (s / 8) * Math.PI * 2 + Math.PI / 8;
-  const tx = Math.cos(a) * 7.6, tz = Math.sin(a) * 7.6;
-  const spMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.18, 8), fSplashMat);
+  const tx = Math.cos(a) * 8.5, tz = Math.sin(a) * 8.5;
+  const spMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.20, 8), fSplashMat);
   spMesh.position.set(tx, 1.06, tz);
   fountainGroup.add(spMesh);
   fSplashes.push({ mesh: spMesh, phase: s * 0.785 });
+}
+
+/* 8 Geysers verticaux sous pression pulsant dans le grand bassin */
+const fGeysers = [];
+const fGeyserMat = new THREE.MeshLambertMaterial({ color: 0xa7f3d0, transparent: true, opacity: 0.88, flatShading: true });
+for (let g = 0; g < 8; g++) {
+  const a = (g / 8) * Math.PI * 2;
+  const gx = Math.cos(a) * 9.8, gz = Math.sin(a) * 9.8;
+  const gyGeo = new THREE.CylinderGeometry(0.18, 0.42, 2.8, 6);
+  gyGeo.translate(0, 1.4, 0);
+  const gyMesh = new THREE.Mesh(gyGeo, fGeyserMat);
+  gyMesh.position.set(gx, 1.0, gz);
+  fountainGroup.add(gyMesh);
+  fGeysers.push({ mesh: gyMesh, phase: g * 0.785, gx, gz });
 }
 
 /* Anneaux d'ondes concentriques s'étendant à la surface du bassin */
@@ -5073,66 +5268,64 @@ for (let r = 0; r < 3; r++) {
 }
 
 /* ---------------------------------------------------------------------
-   7.9 FEUX TRICOLORES DE CIRCULATION SURPOTENCE OVERHEAD AUX CARREFOURS
+   7.9 FEUX TRICOLORES EN POTENCE RIGOUREUSEMENT ALIGNÉS AUX VOIES
    ------------------------------------------------------------------ */
 const TRAFFIC_LIGHT_NODES = [
   // Carrefour Place des Cocotiers / Avenue Foch [-130, -230]
-  { id: 'f1_n', x: -140, z: -218, ry: 0,             phaseOffset: 0 },
-  { id: 'f1_s', x: -120, z: -242, ry: Math.PI,       phaseOffset: 0 },
-  { id: 'f1_e', x: -118, z: -220, ry: -Math.PI / 2,  phaseOffset: Math.PI },
-  { id: 'f1_w', x: -142, z: -240, ry: Math.PI / 2,   phaseOffset: Math.PI },
+  { id: 'f1_s', px: -123.5, pz: -244, dx: 0,  dz: 1,  phaseOffset: 0 },         // Voie vers le Sud
+  { id: 'f1_n', px: -136.5, pz: -216, dx: 0,  dz: -1, phaseOffset: 0 },         // Voie vers le Nord
+  { id: 'f1_e', px: -144,   pz: -236.5, dx: 1,  dz: 0,  phaseOffset: Math.PI },   // Voie vers l'Est
+  { id: 'f1_w', px: -116,   pz: -223.5, dx: -1, dz: 0,  phaseOffset: Math.PI },   // Voie vers l'Ouest
+
   // Carrefour Place des Cocotiers / Victoire [-240, -230]
-  { id: 'f2_n', x: -250, z: -218, ry: 0,             phaseOffset: 0 },
-  { id: 'f2_s', x: -230, z: -242, ry: Math.PI,       phaseOffset: 0 },
-  { id: 'f2_e', x: -228, z: -220, ry: -Math.PI / 2,  phaseOffset: Math.PI },
-  { id: 'f2_w', x: -252, z: -240, ry: Math.PI / 2,   phaseOffset: Math.PI },
+  { id: 'f2_s', px: -233.5, pz: -244, dx: 0,  dz: 1,  phaseOffset: 0 },
+  { id: 'f2_n', px: -246.5, pz: -216, dx: 0,  dz: -1, phaseOffset: 0 },
+  { id: 'f2_e', px: -254,   pz: -236.5, dx: 1,  dz: 0,  phaseOffset: Math.PI },
+  { id: 'f2_w', px: -226,   pz: -223.5, dx: -1, dz: 0,  phaseOffset: Math.PI },
+
   // Carrefour Baie des Citrons / Promenade [-260, 605]
-  { id: 'f3_n', x: -270, z: 596,  ry: 0.2,           phaseOffset: 0 },
-  { id: 'f3_s', x: -250, z: 614,  ry: Math.PI + 0.2, phaseOffset: Math.PI },
+  { id: 'f3_e', px: -272, pz: 598, dx: 0.96,  dz: 0.28,  phaseOffset: 0 },
+  { id: 'f3_w', px: -248, pz: 612, dx: -0.96, dz: -0.28, phaseOffset: Math.PI },
+
   // Carrefour Anse Vata / Promenade [160, 650]
-  { id: 'f4_n', x: 150,  z: 640,  ry: 0.1,           phaseOffset: 0 },
-  { id: 'f4_s', x: 170,  z: 660,  ry: Math.PI + 0.1, phaseOffset: Math.PI }
+  { id: 'f4_e', px: 148, pz: 644, dx: 0.98,  dz: -0.17, phaseOffset: 0 },
+  { id: 'f4_w', px: 172, pz: 656, dx: -0.98, dz: 0.17,  phaseOffset: Math.PI }
 ];
 
 const trafficPoles = [];
 TRAFFIC_LIGHT_NODES.forEach(tl => {
-  // Mât vertical noir en bord de chaussée
-  trafficPoles.push(cylG(0.18, 0.24, 7.2, 6, PAL.trafficPole, tl.x, ROAD_Y + 3.6, tl.z));
+  // Mât vertical noir en bord de trottoir
+  trafficPoles.push(cylG(0.20, 0.26, 7.2, 8, PAL.trafficPole, tl.px, ROAD_Y + 3.6, tl.pz));
 
-  // Potence horizontale surplombant la voie
-  const sideX = Math.cos(tl.ry), sideZ = -Math.sin(tl.ry);
-  const faceAngle = tl.ry + Math.PI;
-  const toCarX = Math.sin(faceAngle), toCarZ = Math.cos(faceAngle);
+  // Vecteur transversal traversant la voie vers la gauche depuis le trottoir droit
+  const ax = -tl.dz, az = tl.dx;
+  const armReach = 4.2;
+  tl.hx = tl.px + ax * armReach;
+  tl.hz = tl.pz + az * armReach;
+  tl.x = tl.hx; tl.z = tl.hz; // Centre de référence sous le feu
 
-  // Bras horizontal traversant la voie (5.0m de portée au-dessus de la voie)
-  const armGeo = new THREE.CylinderGeometry(0.10, 0.10, 5.0, 6);
-  armGeo.rotateZ(Math.PI / 2);
-  armGeo.rotateY(tl.ry);
-  armGeo.translate(tl.x + sideX * 2.5, ROAD_Y + 6.7, tl.z + sideZ * 2.5);
-  trafficPoles.push(prep(armGeo, PAL.trafficPole));
+  // Bras horizontal surplombant directement la voie de circulation
+  trafficPoles.push(segCyl(tl.px, ROAD_Y + 6.8, tl.pz, tl.hx, ROAD_Y + 6.8, tl.hz, 0.12, 0.10, 6, PAL.trafficPole));
 
   // Hauban oblique de renfort
-  const braceGeo = new THREE.CylinderGeometry(0.06, 0.06, 2.8, 5);
-  braceGeo.rotateZ(Math.PI / 4);
-  braceGeo.rotateY(tl.ry);
-  braceGeo.translate(tl.x + sideX * 1.0, ROAD_Y + 5.9, tl.z + sideZ * 1.0);
-  trafficPoles.push(prep(braceGeo, PAL.trafficPole));
+  const bxEnd = tl.px + ax * 1.8, bzEnd = tl.pz + az * 1.8;
+  trafficPoles.push(segCyl(tl.px, ROAD_Y + 5.2, tl.pz, bxEnd, ROAD_Y + 6.75, bzEnd, 0.07, 0.06, 5, PAL.trafficPole));
 
-  // Boîtier noir à 3 feux suspendu au-dessus de la route
-  const hx = tl.x + sideX * 4.2;
-  const hz = tl.z + sideZ * 4.2;
-  const hy = ROAD_Y + 5.3;
-  trafficPoles.push(bx(0.72, 2.2, 0.52, PAL.trafficHousing, hx, hy, hz, faceAngle));
+  // Orientation du boîtier et des optiques : strictement face aux voitures en approche
+  const faceAngle = Math.atan2(-tl.dx, -tl.dz);
+  tl.faceAngle = faceAngle;
 
-  // Visières / casquettes noires au-dessus de chaque feu
+  // Boîtier noir suspendu à la potence au-dessus du centre de la voie
+  trafficPoles.push(bx(0.72, 2.3, 0.54, PAL.trafficHousing, tl.hx, ROAD_Y + 5.4, tl.hz, faceAngle));
+
+  // Visières / casquettes au-dessus des optiques
   for (let lk = 0; lk < 3; lk++) {
-    const vy = hy + 0.62 - lk * 0.62;
-    trafficPoles.push(bx(0.56, 0.10, 0.36, PAL.trafficHousing, hx + toCarX * 0.32, vy + 0.18, hz + toCarZ * 0.32, faceAngle));
+    const vy = ROAD_Y + 5.4 + 0.65 - lk * 0.65;
+    trafficPoles.push(bx(0.56, 0.10, 0.38, PAL.trafficHousing, tl.hx - tl.dx * 0.30, vy + 0.18, tl.hz - tl.dz * 0.30, faceAngle));
   }
 
-  // Position et orientation des optiques face aux véhicules qui approchent
-  tl.lightCenter = [hx + toCarX * 0.28, hy, hz + toCarZ * 0.28];
-  tl.faceAngle = faceAngle;
+  // Centre des optiques lumineuses sur la face avant tournée vers les voitures
+  tl.lightCenter = [tl.hx - tl.dx * 0.28, ROAD_Y + 5.4, tl.hz - tl.dz * 0.28];
 });
 scene.add(mergedMesh(trafficPoles));
 
@@ -5144,9 +5337,9 @@ const tlGreenMesh = instanced(tlLensGeo, TRAFFIC_LIGHT_NODES.length, { basic: tr
 scene.add(tlRedMesh, tlYellowMesh, tlGreenMesh);
 TRAFFIC_LIGHT_NODES.forEach((tl, i) => {
   const lc = tl.lightCenter;
-  setTRS(tlRedMesh, i, lc[0], lc[1] + 0.62, lc[2], tl.faceAngle);
+  setTRS(tlRedMesh, i, lc[0], lc[1] + 0.65, lc[2], tl.faceAngle);
   setTRS(tlYellowMesh, i, lc[0], lc[1], lc[2], tl.faceAngle);
-  setTRS(tlGreenMesh, i, lc[0], lc[1] - 0.62, lc[2], tl.faceAngle);
+  setTRS(tlGreenMesh, i, lc[0], lc[1] - 0.65, lc[2], tl.faceAngle);
 });
 tlRedMesh.count = TRAFFIC_LIGHT_NODES.length;
 tlYellowMesh.count = TRAFFIC_LIGHT_NODES.length;
@@ -5758,11 +5951,31 @@ const pickupBodies = instanced(pickupBodyGeo, MAXPICKUP, { cast: true });
 const pickupDetails = instanced(pickupDetailGeo, MAXPICKUP, { vcolor: true, cast: true });
 
 const carLightGeo = (() => mergeGeometries([
-  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(-0.65 * CS, 0.72 * CS, 2.05 * CS), 0xffffff),
-  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(0.65 * CS, 0.72 * CS, 2.05 * CS), 0xffffff)
+  /* Feux avant blancs éclatants */
+  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(-0.65 * CS, 0.72 * CS, 2.05 * CS), 0xfffae0),
+  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(0.65 * CS, 0.72 * CS, 2.05 * CS), 0xfffae0),
+  /* Faisceaux lumineux projetés au sol */
+  prep(new THREE.BoxGeometry(0.38 * CS, 0.05 * CS, 2.4 * CS).translate(-0.65 * CS, 0.08 * CS, 3.2 * CS), 0xfff4be),
+  prep(new THREE.BoxGeometry(0.38 * CS, 0.05 * CS, 2.4 * CS).translate(0.65 * CS, 0.08 * CS, 3.2 * CS), 0xfff4be),
+  /* Feux arrière rouge rubis vifs */
+  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(-0.65 * CS, 0.72 * CS, -2.05 * CS), 0xff1e1e),
+  prep(new THREE.BoxGeometry(0.42 * CS, 0.22 * CS, 0.12 * CS).translate(0.65 * CS, 0.72 * CS, -2.05 * CS), 0xff1e1e)
 ], false))();
-const carLights = instanced(carLightGeo, MAXCAR + MAXPICKUP, { basic: true, color: 0xffe9b0 });
-scene.add(carBodies, carDetails, busBodies, busDetails, pickupBodies, pickupDetails, carLights);
+const carLights = instanced(carLightGeo, MAXCAR + MAXPICKUP, { basic: true, vcolor: true });
+
+const busLightGeo = (() => mergeGeometries([
+  /* Feux avant bus */
+  prep(new THREE.BoxGeometry(0.48 * CS, 0.28 * CS, 0.12 * CS).translate(-0.85 * CS, 0.75 * CS, 5.25 * CS), 0xfffae0),
+  prep(new THREE.BoxGeometry(0.48 * CS, 0.28 * CS, 0.12 * CS).translate(0.85 * CS, 0.75 * CS, 5.25 * CS), 0xfffae0),
+  /* Faisceaux avant bus au sol */
+  prep(new THREE.BoxGeometry(0.45 * CS, 0.05 * CS, 3.0 * CS).translate(-0.85 * CS, 0.08 * CS, 6.7 * CS), 0xfff4be),
+  prep(new THREE.BoxGeometry(0.45 * CS, 0.05 * CS, 3.0 * CS).translate(0.85 * CS, 0.08 * CS, 6.7 * CS), 0xfff4be),
+  /* Feux arrière bus rouge rubis */
+  prep(new THREE.BoxGeometry(0.48 * CS, 0.35 * CS, 0.12 * CS).translate(-0.85 * CS, 0.85 * CS, -5.25 * CS), 0xff1e1e),
+  prep(new THREE.BoxGeometry(0.48 * CS, 0.35 * CS, 0.12 * CS).translate(0.85 * CS, 0.85 * CS, -5.25 * CS), 0xff1e1e)
+], false))();
+const busLights = instanced(busLightGeo, MAXBUS, { basic: true, vcolor: true });
+scene.add(carBodies, carDetails, busBodies, busDetails, pickupBodies, pickupDetails, carLights, busLights);
 
 function emergencyVehicle(bodyColor, isFire) {
   const parts = [];
@@ -5864,7 +6077,8 @@ carBodies.count = totalCar; carDetails.count = totalCar;
 busBodies.count = totalBus; busDetails.count = totalBus;
 pickupBodies.count = totalPickup; pickupDetails.count = totalPickup;
 carLights.count = totalCar + totalPickup;
-[carBodies, carDetails, busBodies, busDetails, pickupBodies, pickupDetails, carLights].forEach(m => {
+busLights.count = totalBus;
+[carBodies, carDetails, busBodies, busDetails, pickupBodies, pickupDetails, carLights, busLights].forEach(m => {
   m.instanceMatrix.needsUpdate = true;
   if (m.instanceColor) m.instanceColor.needsUpdate = true;
 });
@@ -5997,39 +6211,76 @@ boats.forEach((b, i) => {
 if (sailBoatHulls.instanceColor) sailBoatHulls.instanceColor.needsUpdate = true;
 
 /* ---------------------------------------------------------------------
-   9.3 PIÉTONS ARTICULÉS, BAIGNEURS, CHEVAUX DE COURSE, OISEAUX
+   9.3 PIÉTONS ARTICULÉS, SERVIETTES DE PLAGE & BRONZEURS ALLONGÉS
    ------------------------------------------------------------------ */
 const PS = 1.4;
+
+/* Fonction de calcul précis de l'élévation du sable à la plage */
+function getBeachElevation(x, z) {
+  let minDist = 9999, chosenV = 0.5;
+  for (const shore of [SHORE_VATA, SHORE_CITRONS]) {
+    for (let i = 0; i < shore.length - 1; i++) {
+      const ax = shore[i][0], az = shore[i][1];
+      const bx = shore[i+1][0], bz = shore[i+1][1];
+      const abx = bx - ax, abz = bz - az;
+      const apx = x - ax, apz = z - az;
+      const l2 = abx * abx + abz * abz;
+      const u = Math.max(0, Math.min(1, (apx * abx + apz * abz) / l2));
+      const px = ax + u * abx, pz = az + u * abz;
+      const d = Math.hypot(x - px, z - pz);
+      if (d < minDist) {
+        minDist = d;
+        const len = Math.hypot(abx, abz);
+        const nx = -abz / len, nz = abx / len;
+        const distAlongNorm = (x - px) * nx + (z - pz) * nz;
+        chosenV = (distAlongNorm + 34) / 76;
+      }
+    }
+  }
+  const v = Math.max(0, Math.min(1, chosenV));
+  const baseY = THREE.MathUtils.lerp(BEACH_Y, 0.48, Math.pow(v, 1.15));
+  const dune = (v < 0.75) ? (0.22 * Math.sin(x * 0.05 + z * 0.03) + 0.10 * Math.cos(x * 0.12 - z * 0.08)) * (1.0 - v * 0.75) : 0;
+  return Math.max(0.48, baseY + dune);
+}
+
 const pHeadGeo = (() => {
   const parts = [];
   /* Tête stylisée */
   parts.push(prep(new THREE.SphereGeometry(0.24 * PS, 6, 5).translate(0, 1.6 * PS, 0), 0xffffff));
-  /* Lunettes de soleil noires */
-  parts.push(bx(0.36 * PS, 0.11 * PS, 0.12 * PS, 0x18181b, 0, 1.64 * PS, 0.20 * PS));
-  /* Chapeau de paille / Bob calédonien */
+  /* Chevelure sculptée Minipoly */
+  const hair = new THREE.DodecahedronGeometry(0.25 * PS, 0);
+  hair.scale(1.05, 0.7, 1.05); hair.translate(0, 1.72 * PS, -0.04 * PS);
+  parts.push(prep(hair, 0x3f2e20));
+  /* Lunettes de soleil noires teintées */
+  parts.push(bx(0.38 * PS, 0.11 * PS, 0.12 * PS, 0x18181b, 0, 1.64 * PS, 0.20 * PS));
+  /* Chapeau de paille / Bob tropical calédonien */
   const crown = new THREE.CylinderGeometry(0.26 * PS, 0.25 * PS, 0.22 * PS, 8);
   crown.translate(0, 1.82 * PS, 0);
   parts.push(prep(crown, 0xf4bf56));
   const brim = new THREE.CylinderGeometry(0.48 * PS, 0.48 * PS, 0.05 * PS, 8);
   brim.translate(0, 1.74 * PS, 0);
   parts.push(prep(brim, 0xf4bf56));
-  /* Ruban de chapeau rouge */
+  /* Ruban de chapeau rouge corail */
   parts.push(bx(0.54 * PS, 0.06 * PS, 0.54 * PS, 0xef4444, 0, 1.79 * PS, 0));
   return mergeGeometries(parts, false);
 })();
 
 const pBodyGeo = (() => {
   const parts = [];
-  /* Torse dans polo / chemisette */
+  /* Torse polo / chemisette estivale */
   parts.push(bx(0.60 * PS, 0.72 * PS, 0.35 * PS, 0xffffff, 0, 1.15 * PS, 0));
-  /* Col */
+  /* Col de chemise */
   parts.push(bx(0.38 * PS, 0.12 * PS, 0.36 * PS, 0xffffff, 0, 1.48 * PS, 0));
-  /* Shorts / bermudas */
+  /* Sac à bandoulière / tote bag de plage */
+  parts.push(bx(0.18 * PS, 0.35 * PS, 0.22 * PS, 0x0284c7, 0.35 * PS, 0.95 * PS, 0.05 * PS));
+  /* Shorts / bermudas de bain */
   parts.push(bx(0.56 * PS, 0.35 * PS, 0.33 * PS, PAL.legs, 0, 0.72 * PS, 0));
+  /* Ceinture */
+  parts.push(bx(0.58 * PS, 0.07 * PS, 0.35 * PS, 0x475569, 0, 0.88 * PS, 0));
   return mergeGeometries(parts, false);
 })();
 
-/* Membres articulés gauche et droit (Bras + Jambe avec chaussure) avec pivot hanche/épaule */
+/* Membres articulés gauche et droit avec chaussures / sandales de plage */
 const pLimbLGeo = (() => mergeGeometries([
   prep(new THREE.BoxGeometry(0.18 * PS, 0.65 * PS, 0.22 * PS).translate(-0.16 * PS, -0.32 * PS, 0), PAL.legs),
   prep(new THREE.BoxGeometry(0.20 * PS, 0.12 * PS, 0.30 * PS).translate(-0.16 * PS, -0.62 * PS, 0.04 * PS), 0x18181b),
@@ -6042,16 +6293,20 @@ const pLimbRGeo = (() => mergeGeometries([
   prep(new THREE.BoxGeometry(0.15 * PS, 0.60 * PS, 0.15 * PS).translate(0.38 * PS, 0.30 * PS, 0), PAL.skin[0])
 ], false))();
 
-const pBodies = instanced(pBodyGeo, 190, { cast: true });
-const pLimbsL = instanced(pLimbLGeo, 190, { vcolor: true, cast: false });
-const pLimbsR = instanced(pLimbRGeo, 190, { vcolor: true, cast: false });
-const pHeads = instanced(pHeadGeo, 190, { cast: true });
+const pBodies = instanced(pBodyGeo, 240, { cast: true });
+const pLimbsL = instanced(pLimbLGeo, 240, { vcolor: true, cast: false });
+const pLimbsR = instanced(pLimbRGeo, 240, { vcolor: true, cast: false });
+const pHeads = instanced(pHeadGeo, 240, { cast: true });
 scene.add(pBodies, pLimbsL, pLimbsR, pHeads);
+
+/* Serviettes de plage colorées sur le sable pour les personnes allongées */
+const towelGeos = [];
+const TOWEL_PAL = [0x0ea5e9, 0xf43f5e, 0xf59e0b, 0x10b981, 0x8b5cf6, 0x06b6d4];
 
 const people = [];
 function addPerson(kind, data, shirtCol, skinCol) {
   const i = people.length;
-  if (i >= 190) return;
+  if (i >= 240) return;
   const isBeach = (kind === 'lounger' || kind === 'swimmer' || kind === 'beachkid');
   const sCol = shirtCol ?? (isBeach ? pick(PAL.swimwear) : pick(PAL.shirt));
   const skCol = skinCol ?? pick(PAL.skinDiverse);
@@ -6060,38 +6315,73 @@ function addPerson(kind, data, shirtCol, skinCol) {
   people.push({ kind, data, idx: i });
 }
 
+/* 1. Piétons flânant sur la Promenade Roger Laroque */
 const WALK_PROM = PROMENADE.map(p => [p[0] + 4, p[1] + 16]);
 const promLen = polyLen(WALK_PROM);
-for (let k = 0; k < 40; k++) {
+for (let k = 0; k < 42; k++) {
   addPerson('walker', { path: WALK_PROM, len: promLen, s: rr(0, promLen), spd: rr(2.4, 4.2) * (rnd() < 0.5 ? 1 : -1) });
 }
+
+/* 2. Piétons dans les allées paysagées de la Place des Cocotiers */
 const PLAZA_PATH = [[-230, -325], [-30, -325], [-30, -245], [-230, -245], [-230, -325]];
 const plazaLen = polyLen(PLAZA_PATH);
-for (let k = 0; k < 30; k++) {
+for (let k = 0; k < 32; k++) {
   addPerson('walker', { path: PLAZA_PATH, len: plazaLen, s: rr(0, plazaLen), spd: rr(2.2, 3.8) * (rnd() < 0.5 ? 1 : -1) });
 }
-/* Baigneurs et personnes allongées sur les serviettes et transats */
-for (let k = 0; k < 28; k++) {
-  const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
+
+/* 3. Bronzeurs et baigneurs allongés sur leurs serviettes de plage (Anse Vata & Baie des Citrons) */
+for (let k = 0; k < 34; k++) {
+  const b = (k % 2 === 0) ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const dz = rr(8, 22);
-  const lx = p0[0] + rr(-32, 32), lz = p0[1] + dz;
+  const dz = rr(8, 20); // Zone de sable sec, hors de l'eau
+  const lx = p0[0] + rr(-30, 30), lz = p0[1] + dz;
   if (onRoad(lx, lz, 7)) continue;
-  const ly = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
-  addPerson('lounger', { x: lx, y: ly, z: lz, ry: rnd() * Math.PI * 2 });
+  const ly = getBeachElevation(lx, lz);
+  const lry = rr(-0.4, 0.4); // Aligné parallèlement à la plage
+  const pose = (k % 2 === 0) ? 'back' : 'belly'; // Alternance dos / ventre
+  const tCol = pick(TOWEL_PAL);
+
+  /* Géométrie de la serviette posée à plat sur le sable */
+  const tg = new THREE.BoxGeometry(1.3, 0.04, 2.4);
+  tg.rotateY(lry);
+  tg.translate(lx, ly + 0.03, lz);
+  towelGeos.push(prep(tg, tCol));
+
+  /* Oreiller / serviette roulée sous la tête */
+  const pg = new THREE.CylinderGeometry(0.12, 0.12, 1.1, 6);
+  pg.rotateZ(Math.PI / 2);
+  pg.rotateY(lry);
+  const headOffX = Math.sin(lry) * 0.95, headOffZ = Math.cos(lry) * 0.95;
+  pg.translate(lx - headOffX, ly + 0.10, lz - headOffZ);
+  towelGeos.push(prep(pg, 0xffffff));
+
+  /* Personnage allongé à plat sur la serviette */
+  addPerson('lounger', { x: lx, y: ly, z: lz, ry: lry, pose });
 }
-/* Enfants jouant sur le sable près des châteaux de sable */
+if (towelGeos.length > 0) {
+  const beachTowelsMesh = mergedMesh(towelGeos);
+  beachTowelsMesh.castShadow = false;
+  beachTowelsMesh.receiveShadow = true;
+  scene.add(beachTowelsMesh);
+}
+
+/* 4. Enfants jouant dans le sable avec seaux et châteaux */
 [[187, 727], [322, 731], [-208, 683]].forEach(([cx, cz]) => {
   for (let ki = 0; ki < 2; ki++) {
-    addPerson('beachkid', { x: cx + rr(-2.5, 2.5), z: cz + rr(-2.5, 2.5), ry: rnd() * 6.28, ph: rnd() * 6.28 });
+    const kx = cx + rr(-2.5, 2.5), kz = cz + rr(-2.5, 2.5);
+    const ky = getBeachElevation(kx, kz);
+    addPerson('beachkid', { x: kx, y: ky, z: kz, ry: rnd() * 6.28, ph: rnd() * 6.28 });
   }
 });
-/* Nageurs dans le lagon près des bouées */
+
+/* 5. Nageurs barbotant dans l'eau cristalline du lagon */
 for (let k = 0; k < 22; k++) {
   const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
   addPerson('swimmer', { x: p0[0] + rr(-28, 28), z: p0[1] + rr(16, 42), ph: rnd() * 6.28 });
 }
+
+/* 6. Joueurs de beach-volley */
 VOLLEY.forEach(([vx, vz, vry]) => {
   for (let s of [-1, 1]) {
     for (let k of [-1.8, 1.8]) {
@@ -6104,6 +6394,7 @@ VOLLEY.forEach(([vx, vz, vry]) => {
     }
   }
 });
+
 pBodies.count = people.length; pLimbsL.count = people.length; pLimbsR.count = people.length; pHeads.count = people.length;
 [pBodies, pLimbsL, pLimbsR, pHeads].forEach(m => {
   m.instanceMatrix.needsUpdate = true;
@@ -6312,11 +6603,23 @@ function applyDayNight() {
   waterMat.color.lerpColors(NIGHT.water, DAY.water, d);
   shallowMat.color.setRGB(1, 1, 1).lerp(_c1.set(0x225566), 1 - d);
   starMat.opacity = Math.max(0, (1 - d) * 0.95 - 0.05);
-  const night = d < 0.45;
-  lampGlow.visible = night;
-  carLights.visible = night;
-  const glow = Math.pow(1 - d, 1.4) * 1.35;
-  for (let i = 0; i < FACADE_MATS.length; i++) FACADE_MATS[i].emissiveIntensity = glow;
+
+  const night = d < 0.48;
+  if (typeof lampGlow !== 'undefined') lampGlow.visible = night;
+  if (typeof carLights !== 'undefined') carLights.visible = night;
+  if (typeof busLights !== 'undefined') busLights.visible = night;
+
+  /* Éclairage chaleureux des fenêtres d'immeubles la nuit */
+  const nightFactor = Math.max(0, (0.50 - d) / 0.50);
+  const glow = Math.pow(nightFactor, 1.2);
+  for (let i = 0; i < FACADE_MATS.length; i++) {
+    const mat = FACADE_MATS[i];
+    mat.userData.nightGlow = glow;
+    mat.emissive.setRGB(glow * 1.8, glow * 1.5, glow * 0.95);
+    if (mat.userData.shader && mat.userData.shader.uniforms && mat.userData.shader.uniforms.uNightGlow) {
+      mat.userData.shader.uniforms.uNightGlow.value = glow;
+    }
+  }
 }
 applyDayNight();
 
@@ -6526,7 +6829,7 @@ function sampleBuoyancy6(x, z, ry, length = 9.0, width = 3.2, t) {
 function updateWorld(dt) {
   const t = state.time;
 
-  /* 1. Lagon : Ondes physiques de Gerstner & Écume de crête (Moutons du lagon) */
+  /* 1. Lagon de Nouvelle-Calédonie : Ondes physiques de Gerstner, dégradé de profondeur & caustiques */
   const posAttr = waterGeo.attributes.position;
   const colAttr = waterGeo.attributes.color;
   const pArr = posAttr.array;
@@ -6537,7 +6840,7 @@ function updateWorld(dt) {
     const x0 = waterBase[i * 3], z0 = waterBase[i * 3 + 2];
     const gw = sampleGerstner(x0, z0, t);
 
-    // Amortissement progressif des ondes océaniques le long du littoral pour éliminer les artéfacts de découpe
+    // Amortissement progressif des ondes le long du littoral pour éviter les coupures
     let coastDamp = 1.0;
     if (x0 > -480 && x0 < 680 && z0 > 560 && z0 < 780) {
       coastDamp = Math.max(0, Math.min(1.0, (780 - z0) / 160 * (z0 > 680 ? 0.35 : 0.85)));
@@ -6547,36 +6850,53 @@ function updateWorld(dt) {
     pArr[i * 3 + 1] = gw.y * coastDamp;
     pArr[i * 3 + 2] = gw.z;
 
-    // Écume blanche éclatante sur les crêtes de vagues pointues
-    if (gw.steepness > 0.32 && gw.y > 0.42 && coastDamp > 0.45) {
+    // Dégradé naturel de profondeur du Grand Lagon
+    // Shallows côtiers (z0 < 760) : Cyan cristallin lumineux (0.18, 0.88, 0.94)
+    // Mi-lagon (z0 760 à 1200) : Turquoise lagon éclatant (0.02, 0.65, 0.74)
+    // Au-delà de la barrière de corail (z0 > 1200) : Bleu cobalt profond (0.01, 0.26, 0.44)
+    const depthT = Math.max(0, Math.min(1.0, (z0 - 640) / 620));
+
+    // Scintillement caustique procédural sous la surface
+    let caustic = 0;
+    if (depthT < 0.65) {
+      caustic = 0.05 * (Math.sin(gw.x * 0.16 + t * 2.2) * Math.cos(gw.z * 0.16 - t * 1.8) + Math.sin(gw.x * 0.28 - gw.z * 0.25 + t * 3.0));
+    }
+
+    if (gw.steepness > 0.30 && gw.y > 0.40 && coastDamp > 0.45) {
+      // Moutons d'écume blanche sur les crêtes de houle
       cArr[i * 3]     = 1.0;
       cArr[i * 3 + 1] = 1.0;
       cArr[i * 3 + 2] = 1.0;
     } else {
-      cArr[i * 3]     = 0.086;
-      cArr[i * 3 + 1] = 0.807;
-      cArr[i * 3 + 2] = 0.854;
+      const r = THREE.MathUtils.lerp(0.18, 0.01, depthT) + caustic;
+      const g = THREE.MathUtils.lerp(0.88, 0.26, depthT) + caustic;
+      const b = THREE.MathUtils.lerp(0.94, 0.44, depthT) + caustic * 0.5;
+      cArr[i * 3]     = Math.min(1.0, Math.max(0, r));
+      cArr[i * 3 + 1] = Math.min(1.0, Math.max(0, g));
+      cArr[i * 3 + 2] = Math.min(1.0, Math.max(0, b));
     }
   }
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
   waterGeo.computeVertexNormals();
 
-  /* 2. Écume blanche de bord de plage dynamique (Shoreline Surf & Waves) */
+  /* 2. Écume dynamique de bord de plage (Dentelle fine de ressac de 1.8m, sans blocs) */
   if (typeof shoreFoamData !== 'undefined' && shoreFoamData.length > 0) {
     const fPos = shoreFoamGeo.attributes.position.array;
     const fCol = shoreFoamGeo.attributes.color.array;
     let ptr = 0;
 
-    shoreFoamData.forEach((seg) => {
-      // Ressac montant et descendant (Swash runup & backwash)
-      const wave1 = Math.sin(t * 1.5 + seg.phase);
-      const surge = Math.max(0, wave1);
-      const runupDist = THREE.MathUtils.lerp(18.0, -6.0, surge);
-      const backDist = runupDist + 2.5;
-      const frontDist = runupDist - 1.8;
-      const yB = 0.55 + Math.max(0, -runupDist) * 0.08;
-      const yF = 0.65 + Math.max(0, -runupDist) * 0.10 + surge * 0.15;
+    shoreFoamData.forEach((seg, si) => {
+      // Ressac doux montant et descendant (Swash & backwash)
+      const wave = Math.sin(t * 1.6 + seg.phase);
+      const swash = Math.max(0, wave); // Glissement montant
+      const runup = THREE.MathUtils.lerp(14.0, 6.0, swash); // Déplacement de 8m sur le bas de plage
+      const width = 1.6 + 0.4 * Math.sin(t * 3.2 + si * 0.5); // Ruban fin de 1.6 à 2.0m
+
+      const backDist = runup + width;
+      const frontDist = runup;
+      const yB = 0.52 + Math.max(0, 14.0 - backDist) * 0.035;
+      const yF = 0.55 + Math.max(0, 14.0 - frontDist) * 0.045 + swash * 0.06;
 
       const p0x = seg.ax + seg.nx * backDist,  p0z = seg.az + seg.nz * backDist;
       const p1x = seg.ax + seg.nx * frontDist, p1z = seg.az + seg.nz * frontDist;
@@ -6598,90 +6918,64 @@ function updateWorld(dt) {
         fCol[ptr + k * 3 + 2] = 1.0;
       }
       ptr += 18;
-
-      // Brisant / rouleau extérieur dans le lagon turquoise
-      const wave2 = Math.sin(t * 1.5 + seg.phase + 2.0);
-      const surge2 = Math.max(0, wave2);
-      const bDist2 = 18.0 + surge2 * 3.5;
-      const fDist2 = 13.0 + surge2 * 2.2;
-      const yB2 = 0.52;
-      const yF2 = 0.65 + surge2 * 0.28;
-
-      const q0x = seg.ax + seg.nx * bDist2, q0z = seg.az + seg.nz * bDist2;
-      const q1x = seg.ax + seg.nx * fDist2, q1z = seg.az + seg.nz * fDist2;
-      const q2x = seg.bx + seg.nx * bDist2, q2z = seg.bz + seg.nz * bDist2;
-      const q3x = seg.bx + seg.nx * fDist2, q3z = seg.bz + seg.nz * fDist2;
-
-      fPos[ptr]   = q0x; fPos[ptr+1] = yB2; fPos[ptr+2] = q0z;
-      fPos[ptr+3] = q1x; fPos[ptr+4] = yF2; fPos[ptr+5] = q1z;
-      fPos[ptr+6] = q2x; fPos[ptr+7] = yB2; fPos[ptr+8] = q2z;
-
-      fPos[ptr+9]  = q2x; fPos[ptr+10] = yB2; fPos[ptr+11] = q2z;
-      fPos[ptr+12] = q1x; fPos[ptr+13] = yF2; fPos[ptr+14] = q1z;
-      fPos[ptr+15] = q3x; fPos[ptr+16] = yF2; fPos[ptr+17] = q3z;
-
-      for (let k = 0; k < 6; k++) {
-        fCol[ptr + k * 3]     = 0.96;
-        fCol[ptr + k * 3 + 1] = 1.0;
-        fCol[ptr + k * 3 + 2] = 1.0;
-      }
-      ptr += 18;
     });
 
     shoreFoamGeo.attributes.position.needsUpdate = true;
     shoreFoamGeo.attributes.color.needsUpdate = true;
-    shoreFoamGeo.computeVertexNormals();
   }
 
-  /* 3. Fontaine animée dynamique (Place des Cocotiers) */
-  if (typeof fJetMesh !== 'undefined') {
-    const jetScale = 1.0 + Math.sin(t * 8.5) * 0.18;
-    fJetMesh.scale.set(jetScale, 1.0 + Math.sin(t * 10.0) * 0.28, jetScale);
-    fJetMesh.rotation.y = t * 1.8;
+  /* 3. Fontaine Céleste monumentale historique (Place des Cocotiers) */
+  if (typeof fBasinWater !== 'undefined') {
+    // Eau du grand bassin octogonal
+    fBasinWater.position.y = 1.05 + Math.sin(t * 3.5) * 0.025;
+    fBasinWater.rotation.y = t * 0.03;
 
-    if (typeof fCrownMesh !== 'undefined') {
-      const gH = 1.0 + Math.sin(t * 10.0) * 0.28;
-      fCrownMesh.position.y = 7.1 + 3.6 * gH;
-      fCrownMesh.scale.set(jetScale * 1.2, 1.0 + Math.sin(t * 12.0) * 0.2, jetScale * 1.2);
+    // Jet continu de l'amphore de Céleste
+    if (typeof fAmphoraStream !== 'undefined') {
+      const aOsc = 1.0 + Math.sin(t * 14.0) * 0.08;
+      fAmphoraStream.scale.set(aOsc, 1.0, aOsc);
     }
 
-    fDrops.forEach(d => {
-      d.mesh.position.set(
-        Math.cos(t * 3.2 + d.ph) * d.rad,
-        8.8 + Math.sin(t * 9.0 + d.ph) * 0.65,
-        Math.sin(t * 3.2 + d.ph) * d.rad
-      );
-    });
-
-    if (typeof fStreams !== 'undefined') {
-      fStreams.forEach((st, si) => {
-        const sOsc = Math.sin(t * 10.0 + si * 0.785) * 0.08;
-        st.mesh.scale.set(1.0 + sOsc, 1.0 + sOsc * 0.5, 1.0 + sOsc);
+    // 4 Mascarons cracheurs d'eau du piédestal
+    if (typeof fMascaronStreams !== 'undefined') {
+      fMascaronStreams.forEach((ms, mi) => {
+        const osc = 1.0 + Math.sin(t * 12.0 + mi * 1.57) * 0.06;
+        ms.mesh.scale.set(osc, osc, 1.0);
       });
     }
 
-    fCascades.forEach((c, ci) => {
-      const cOsc = Math.sin(t * 12.0 + ci * 0.785) * 0.10;
-      c.mesh.scale.set(1.0 + cOsc, 1.0, 1.0 + cOsc);
-    });
+    // 8 Cascades de la vasque supérieure
+    if (typeof fCascades !== 'undefined') {
+      fCascades.forEach((c, ci) => {
+        const cOsc = 1.0 + Math.sin(t * 10.0 + ci * 0.785) * 0.08;
+        c.mesh.scale.set(cOsc, 1.0, cOsc);
+      });
+    }
 
-    fSplashes.forEach(s => {
-      const sp = 0.85 + Math.abs(Math.sin(t * 8.5 + s.phase)) * 0.52;
-      s.mesh.scale.set(sp, 1.0, sp);
-    });
+    // 8 Geysers du bassin
+    if (typeof fGeysers !== 'undefined') {
+      fGeysers.forEach((g, gi) => {
+        const gOsc = 0.85 + Math.abs(Math.sin(t * 9.0 + gi * 0.8)) * 0.45;
+        g.mesh.scale.set(1.0, gOsc, 1.0);
+      });
+    }
 
+    // Éclaboussures d'écume blanche
+    if (typeof fSplashes !== 'undefined') {
+      fSplashes.forEach(s => {
+        const sp = 0.85 + Math.abs(Math.sin(t * 11.0 + s.phase)) * 0.45;
+        s.mesh.scale.set(sp, 1.0, sp);
+      });
+    }
+
+    // Ondulations concentriques
     if (typeof fRipples !== 'undefined') {
       fRipples.forEach(r => {
-        const ripT = (t * 1.8 + r.phase) % 3.0;
-        const scale = 1.0 + ripT * 2.2;
+        const ripT = (t * 1.6 + r.phase) % 2.5;
+        const scale = 1.0 + ripT * 2.0;
         r.mesh.scale.set(scale, scale, 1);
-        r.mesh.material.opacity = Math.max(0, 0.65 * (1.0 - ripT / 3.0));
+        r.mesh.material.opacity = Math.max(0, 0.65 * (1.0 - ripT / 2.5));
       });
-    }
-
-    if (typeof fBasinWater !== 'undefined') {
-      fBasinWater.position.y = 0.96 + Math.sin(t * 3.8) * 0.035;
-      fBasinWater.rotation.y = t * 0.04;
     }
   }
 
@@ -6692,6 +6986,98 @@ function updateWorld(dt) {
       f.mesh.rotation.x = Math.sin(t * 1.6 + f.ph) * 0.08;
       f.mesh.rotation.z = Math.cos(t * 1.6 + f.ph) * 0.08;
     });
+  }
+
+  /* 3.3 Grues Portuaires Automatisées de Déchargement de Conteneurs (Port Autonome) */
+  if (typeof portCranes !== 'undefined') {
+    portCranes.forEach((cr) => {
+      const PERIOD = 18.0;
+      const tCycle = (t * 0.85 + cr.phase) % PERIOD;
+      let trolX = 0, spreadY = 27.5, hasBox = false;
+
+      // Phase 1 (0 to 5s): Chariot roule vers la mer au-dessus du cargo
+      if (tCycle < 5.0) {
+        const u = tCycle / 5.0;
+        trolX = THREE.MathUtils.lerp(8.0, 32.0, THREE.MathUtils.smoothstep(u, 0, 1));
+        spreadY = 27.5;
+        hasBox = false;
+      }
+      // Phase 2 (5 to 7.5s): Descente du palonnier dans la cale du navire
+      else if (tCycle < 7.5) {
+        trolX = 32.0;
+        const u = (tCycle - 5.0) / 2.5;
+        spreadY = THREE.MathUtils.lerp(27.5, 9.2, Math.sin(u * Math.PI * 0.5));
+        hasBox = (u > 0.85);
+      }
+      // Phase 3 (7.5 to 10s): Levage du conteneur
+      else if (tCycle < 10.0) {
+        trolX = 32.0;
+        const u = (tCycle - 7.5) / 2.5;
+        spreadY = THREE.MathUtils.lerp(9.2, 27.5, Math.sin(u * Math.PI * 0.5));
+        hasBox = true;
+      }
+      // Phase 4 (10 to 14.5s): Translation du chariot vers le terminal terrestre
+      else if (tCycle < 14.5) {
+        const u = (tCycle - 10.0) / 4.5;
+        trolX = THREE.MathUtils.lerp(32.0, 6.0, THREE.MathUtils.smoothstep(u, 0, 1));
+        spreadY = 27.5;
+        hasBox = true;
+      }
+      // Phase 5 (14.5 to 16.5s): Descente du conteneur sur le quai
+      else if (tCycle < 16.5) {
+        trolX = 6.0;
+        const u = (tCycle - 14.5) / 2.0;
+        spreadY = THREE.MathUtils.lerp(27.5, 6.5, Math.sin(u * Math.PI * 0.5));
+        hasBox = (u < 0.90);
+      }
+      // Phase 6 (16.5 to 18s): Remontée du palonnier à vide
+      else {
+        trolX = 6.0;
+        const u = (tCycle - 16.5) / 1.5;
+        spreadY = THREE.MathUtils.lerp(6.5, 27.5, Math.sin(u * Math.PI * 0.5));
+        hasBox = false;
+      }
+
+      cr.trolley.position.x = trolX;
+      cr.spreader.position.x = trolX;
+      cr.spreader.position.y = spreadY;
+
+      const cableLen = 29.2 - spreadY;
+      cr.cables.position.x = trolX;
+      cr.cables.position.y = 29.2 - cableLen / 2;
+      cr.cables.scale.y = cableLen;
+
+      cr.container.visible = hasBox;
+      if (hasBox) {
+        cr.container.position.x = trolX;
+        cr.container.position.y = spreadY - 1.4;
+      }
+    });
+  }
+
+  /* 3.4 Animation de la vie nocturne des bâtiments (fenêtres qui s'allument et s'éteignent) */
+  if (state.day < 0.48 && FACADE_MATS.length > 0) {
+    const nightFactor = Math.max(0, (0.50 - state.day) / 0.50);
+    const flicker = 0.94 + 0.06 * Math.sin(t * 0.85);
+    const g = Math.pow(nightFactor, 1.2) * flicker;
+    for (let i = 0; i < FACADE_MATS.length; i++) {
+      const mat = FACADE_MATS[i];
+      mat.userData.nightGlow = g;
+      mat.emissive.setRGB(g * 1.8, g * 1.5, g * 0.95);
+      if (mat.userData.shader && mat.userData.shader.uniforms) {
+        if (mat.userData.shader.uniforms.uNightGlow) mat.userData.shader.uniforms.uNightGlow.value = g;
+        if (mat.userData.shader.uniforms.uTime) mat.userData.shader.uniforms.uTime.value = t;
+      }
+    }
+  } else if (FACADE_MATS.length > 0 && FACADE_MATS[0].emissive.r > 0.001) {
+    for (let i = 0; i < FACADE_MATS.length; i++) {
+      const mat = FACADE_MATS[i];
+      mat.userData.nightGlow = 0;
+      mat.emissive.setRGB(0, 0, 0);
+      if (mat.userData.shader && mat.userData.shader.uniforms && mat.userData.shader.uniforms.uNightGlow) {
+        mat.userData.shader.uniforms.uNightGlow.value = 0;
+      }
+    }
   }
 
   /* 3.5 Cycle automatique des feux tricolores (24 secondes : 11s vert, 2.5s orange, 10.5s rouge) */
@@ -6725,7 +7111,7 @@ function updateWorld(dt) {
     lane.actors.forEach((act, ai) => {
       const active = (act.isEmergency || ai < Math.ceil(actCount * actorScale));
       if (!active) {
-        if (act.isBus) { setTRS(busBodies, act.idx, 0, -50, 0, 0); setTRS(busDetails, act.idx, 0, -50, 0, 0); }
+        if (act.isBus) { setTRS(busBodies, act.idx, 0, -50, 0, 0); setTRS(busDetails, act.idx, 0, -50, 0, 0); setTRS(busLights, act.idx, 0, -50, 0, 0); }
         else if (act.isPickup) { setTRS(pickupBodies, act.idx, 0, -50, 0, 0); setTRS(pickupDetails, act.idx, 0, -50, 0, 0); setTRS(carLights, MAXCAR + act.idx, 0, -50, 0, 0); }
         else if (act.isCar) { setTRS(carBodies, act.idx, 0, -50, 0, 0); setTRS(carDetails, act.idx, 0, -50, 0, 0); setTRS(carLights, act.idx, 0, -50, 0, 0); }
         return;
@@ -6741,15 +7127,21 @@ function updateWorld(dt) {
         }
       }
 
-      // Détection des feux tricolores à l'approche des carrefours
+      // Détection directionnelle des feux tricolores à l'approche des carrefours
       if (typeof TRAFFIC_LIGHT_NODES !== 'undefined' && !act.isEmergency) {
         const currPt = lane.curve.getPointAt(Math.max(0.0002, Math.min(0.9998, act.s)));
+        const tangent = lane.curve.getTangentAt(Math.max(0.0002, Math.min(0.9998, act.s)));
+
         for (let ti = 0; ti < TRAFFIC_LIGHT_NODES.length; ti++) {
           const tl = TRAFFIC_LIGHT_NODES[ti];
           if (tl.state === 'red' || tl.state === 'yellow') {
-            const dTl = Math.hypot(currPt.x - tl.x, currPt.z - tl.z);
-            if (dTl > 4.5 && dTl < 19.5) {
-              targetSpd = Math.min(targetSpd, Math.max(0, (dTl - 5.0) * 1.8));
+            // Le feu n'intercepte que les véhicules se déplaçant dans la direction du feu
+            const dot = tangent.x * tl.dx + tangent.z * tl.dz;
+            if (dot > 0.65) {
+              const dTl = Math.hypot(currPt.x - tl.x, currPt.z - tl.z);
+              if (dTl > 3.8 && dTl < 22.0) {
+                targetSpd = Math.min(targetSpd, Math.max(0, (dTl - 4.5) * 1.6));
+              }
             }
           }
         }
@@ -6774,6 +7166,7 @@ function updateWorld(dt) {
       } else if (act.isBus) {
         setTRS(busBodies, act.idx, pt.x, pt.y, pt.z, ry);
         setTRS(busDetails, act.idx, pt.x, pt.y, pt.z, ry);
+        setTRS(busLights, act.idx, pt.x, pt.y, pt.z, ry);
       } else if (act.isPickup) {
         setTRS(pickupBodies, act.idx, pt.x, pt.y, pt.z, ry);
         setTRS(pickupDetails, act.idx, pt.x, pt.y, pt.z, ry);
@@ -6790,10 +7183,11 @@ function updateWorld(dt) {
   carLights.instanceMatrix.needsUpdate = true;
   busBodies.instanceMatrix.needsUpdate = true;
   busDetails.instanceMatrix.needsUpdate = true;
+  busLights.instanceMatrix.needsUpdate = true;
   pickupBodies.instanceMatrix.needsUpdate = true;
   pickupDetails.instanceMatrix.needsUpdate = true;
 
-  /* 5. Piétons vivants et articulés (marche naturelle, balancement bras/jambes) */
+  /* 5. Piétons vivants, marche naturelle et bronzeurs allongés sur serviettes */
   people.forEach(p => {
     if (p.kind === 'walker') {
       const d = p.data;
@@ -6818,16 +7212,19 @@ function updateWorld(dt) {
       setFull(pLimbsR, p.idx, d.x, y, d.z, -stroke, d.ph, 0);
     } else if (p.kind === 'lounger') {
       const d = p.data;
-      const yL = d.y ?? (BEACH_Y + 0.22);
       const breathe = Math.sin(t * 1.8 + p.idx) * 0.02;
-      setFull(pBodies, p.idx, d.x, yL + 0.22 + breathe, d.z, -0.55, d.ry, 0);
-      setFull(pHeads, p.idx, d.x, yL + 0.44 + breathe, d.z, -0.25, d.ry, 0);
-      setTRS(pLimbsL, p.idx, d.x, yL + 0.14, d.z, d.ry);
-      setTRS(pLimbsR, p.idx, d.x, yL + 0.14, d.z, d.ry);
+      const isBelly = (d.pose === 'belly');
+      const pitch = isBelly ? (Math.PI / 2) : (-Math.PI / 2);
+
+      // Le personnage est posé à plat sur sa serviette au-dessus du sable
+      setFull(pBodies, p.idx, d.x, d.y + 0.16 + breathe, d.z, pitch, d.ry, 0);
+      setFull(pHeads, p.idx, d.x, d.y + 0.22 + breathe * 0.5, d.z, pitch, d.ry, isBelly ? 0.35 : 0);
+      setFull(pLimbsL, p.idx, d.x, d.y + 0.10, d.z, pitch, d.ry, 0);
+      setFull(pLimbsR, p.idx, d.x, d.y + 0.10, d.z, pitch, d.ry, 0);
     } else if (p.kind === 'beachkid') {
       const d = p.data;
       const dig = Math.sin(t * 5.5 + d.ph) * 0.35;
-      const yKid = 1.35;
+      const yKid = d.y ?? 1.35;
       setFull(pBodies, p.idx, d.x, yKid + 0.15, d.z, 0.42 + dig * 0.15, d.ry, 0, 0.72, 0.72, 0.72);
       setFull(pHeads, p.idx, d.x, yKid + 0.35, d.z, 0.35, d.ry, 0, 0.72, 0.72, 0.72);
       setFull(pLimbsL, p.idx, d.x, yKid + 0.5, d.z, dig, d.ry, 0, 0.72, 0.72, 0.72);
