@@ -3269,6 +3269,158 @@ const coneG = (r, h, seg, hex, x = 0, y = 0, z = 0, rx = 0, rz = 0) => {
   return prep(g, hex);
 };
 
+/* Prisme trapézoïdal biseauté (pour membres et anatomie Low-Poly) */
+function prismG(wt, dt, wb, db, h, hex, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+  const g = new THREE.BufferGeometry();
+  const ht = h / 2;
+  const hw_t = wt / 2, hd_t = dt / 2;
+  const hw_b = wb / 2, hd_b = db / 2;
+  const v = [
+    [-hw_t, ht, hd_t], [hw_t, ht, hd_t], [hw_t, ht, -hd_t], [-hw_t, ht, -hd_t],
+    [-hw_b, -ht, hd_b], [hw_b, -ht, hd_b], [hw_b, -ht, -hd_b], [-hw_b, -ht, -hd_b]
+  ];
+  const indices = [
+    0, 1, 2,  0, 2, 3,
+    5, 4, 7,  5, 7, 6,
+    4, 5, 1,  4, 1, 0,
+    6, 7, 3,  6, 3, 2,
+    7, 4, 0,  7, 0, 3,
+    5, 6, 2,  5, 2, 1
+  ];
+  const pos = [];
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i];
+    pos.push(v[idx][0], v[idx][1], v[idx][2]);
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  if (rx) g.rotateX(rx);
+  if (ry) g.rotateY(ry);
+  if (rz) g.rotateZ(rz);
+  g.translate(x, y, z);
+  return prep(g, hex);
+}
+
+/* Palette Polyperfect normalisée pour les personnages haute fidélité */
+const PP_PAL = {
+  skinFair: [0.98, 0.86, 0.76],
+  skinTan:  [0.85, 0.54, 0.40],
+  hairBlonde: [0.98, 0.82, 0.32],
+  hairDark:   [0.12, 0.10, 0.09],
+  lifeguardRed: [0.88, 0.13, 0.13],
+  white: [0.96, 0.96, 0.98],
+  boardshortGreen: [0.11, 0.28, 0.20],
+  surfDeckYellow: [0.96, 0.68, 0.12],
+  surfRailRed: [0.85, 0.12, 0.12],
+  surfBottom: [0.98, 0.94, 0.80],
+  sunglasses: [0.08, 0.08, 0.10],
+  waterFoam: [0.92, 0.97, 1.00]
+};
+
+/* Constructeur de maillage à faces plates (flat-shaded BufferGeometry avec extrusion continue) */
+class LowPolyBuilder {
+  constructor() {
+    this.positions = [];
+    this.colors = [];
+  }
+
+  _toRgb(col) {
+    if (Array.isArray(col)) return col;
+    if (typeof col === 'number') {
+      const r = ((col >> 16) & 255) / 255;
+      const g = ((col >> 8) & 255) / 255;
+      const b = (col & 255) / 255;
+      return [r, g, b];
+    }
+    return [1, 1, 1];
+  }
+
+  addTri(p1, p2, p3, color) {
+    const rgb = this._toRgb(color);
+    this.positions.push(
+      p1[0], p1[1], p1[2],
+      p2[0], p2[1], p2[2],
+      p3[0], p3[1], p3[2]
+    );
+    for (let k = 0; k < 3; k++) {
+      this.colors.push(rgb[0], rgb[1], rgb[2]);
+    }
+  }
+
+  addQuad(p1, p2, p3, p4, color) {
+    const rgb = this._toRgb(color);
+    this.addTri(p1, p2, p3, rgb);
+    this.addTri(p1, p3, p4, rgb);
+  }
+
+  bridgeRings(ringA, ringB, color) {
+    const rgb = this._toRgb(color);
+    const n = ringA.length;
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n;
+      this.addQuad(ringA[i], ringB[i], ringB[next], ringA[next], rgb);
+    }
+  }
+
+  buildArticulatedLimb(joints, radii, segments, color) {
+    const rgb = this._toRgb(color);
+    const rings = [];
+    for (let j = 0; j < joints.length; j++) {
+      const curr = joints[j];
+      const prev = joints[Math.max(0, j - 1)];
+      const next = joints[Math.min(joints.length - 1, j + 1)];
+      
+      let dirX = next[0] - prev[0];
+      let dirY = next[1] - prev[1];
+      let dirZ = next[2] - prev[2];
+      const len = Math.hypot(dirX, dirY, dirZ) || 1;
+      dirX /= len; dirY /= len; dirZ /= len;
+
+      let upX = 0, upY = 1, upZ = 0;
+      if (Math.abs(dirY) > 0.92) { upX = 1; upY = 0; upZ = 0; }
+      
+      let ux = dirY * upZ - dirZ * upY;
+      let uy = dirZ * upX - dirX * upZ;
+      let uz = dirX * upY - dirY * upX;
+      const uLen = Math.hypot(ux, uy, uz);
+      ux /= uLen; uy /= uLen; uz /= uLen;
+
+      let vx = dirY * uz - dirZ * uy;
+      let vy = dirZ * ux - dirX * uz;
+      let vz = dirX * uy - dirY * ux;
+
+      const r = radii[j];
+      const ring = [];
+      for (let s = 0; s < segments; s++) {
+        const theta = (s / segments) * Math.PI * 2;
+        const cos = Math.cos(theta) * r;
+        const sin = Math.sin(theta) * r;
+        ring.push([
+          curr[0] + ux * cos + vx * sin,
+          curr[1] + uy * cos + vy * sin,
+          curr[2] + uz * cos + vz * sin
+        ]);
+      }
+      rings.push(ring);
+    }
+
+    for (let j = 0; j < rings.length - 1; j++) {
+      this.bridgeRings(rings[j], rings[j + 1], rgb);
+    }
+
+    return rings;
+  }
+
+  buildGeometry() {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
+    const n = this.positions.length / 3;
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    geo.computeVertexNormals();
+    return geo;
+  }
+}
+
 /* Roue de véhicule 3D détaillée : pneu noir + jante argentée évidée */
 function wheelGeo(r = 0.38, w = 0.26, rimR = 0.22) {
   return mergeGeometries([
@@ -5665,11 +5817,304 @@ tlYellowMesh.instanceMatrix.needsUpdate = true;
 tlGreenMesh.instanceMatrix.needsUpdate = true;
 
 /* ---------------------------------------------------------------------
-   7.10 BOUÉES GONFLABLES DU LAGON (DONUTS & FLAMANTS ROSES) AVEC BAIGNEURS & PADDLE
+   7.10 PERSONNAGES DU LAGON POLYPERFECT (NAGEUR BRAS EN V, SURFEUR, BOUÉES & PADDLE)
    ------------------------------------------------------------------ */
 const lagoonFloats = [];
 
-/* Bouée Donut habitée */
+/* Archétype Polyperfect : Nageur dans la bouée couronne bras levés en 'V' (media_1789619326003.png) */
+function createPolyperfectSwimmerInRingGeo() {
+  const b = new LowPolyBuilder();
+  const skin = PP_PAL.skinFair;
+  const red = PP_PAL.lifeguardRed;
+  const white = PP_PAL.white;
+  const glassesCol = PP_PAL.sunglasses;
+
+  // 1. Bouée Couronne bicolore (Tore polygonal 16 segments x 6 faces)
+  const R = 0.68; // Rayon moyen
+  const r = 0.24; // Rayon boudin
+  const radialSeg = 16, tubeSeg = 6;
+  const rings = [];
+
+  for (let i = 0; i < radialSeg; i++) {
+    const phi = (i / radialSeg) * Math.PI * 2;
+    const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi);
+    const ring = [];
+    for (let j = 0; j < tubeSeg; j++) {
+      const theta = (j / tubeSeg) * Math.PI * 2;
+      const cosTheta = Math.cos(theta), sinTheta = Math.sin(theta);
+      ring.push([
+        (R + r * cosTheta) * cosPhi,
+        r * sinTheta,
+        (R + r * cosTheta) * sinPhi
+      ]);
+    }
+    rings.push(ring);
+  }
+
+  // Alternance bicolore rouge / blanc (secteurs de sauvetage)
+  for (let i = 0; i < radialSeg; i++) {
+    const next = (i + 1) % radialSeg;
+    const isRed = Math.floor(i / 2) % 2 === 0;
+    b.bridgeRings(rings[i], rings[next], isRed ? red : white);
+  }
+
+  // 2. Buste masculin athlétique émergeant au centre de la bouée
+  const waist = [
+    [0.14, 0.05, 0.08], [0.16, 0.05, -0.06], [-0.16, 0.05, -0.06], [-0.14, 0.05, 0.08]
+  ];
+  const chest = [
+    [0.22, 0.44, 0.12], [0.24, 0.44, -0.10], [-0.24, 0.44, -0.10], [-0.22, 0.44, 0.12]
+  ];
+  const sternum = [0.00, 0.42, 0.14];
+  b.addTri(waist[0], chest[0], sternum, skin);
+  b.addTri(waist[3], sternum, chest[3], skin);
+  b.addTri(waist[0], sternum, waist[3], skin);
+  b.addQuad(waist[0], waist[1], chest[1], chest[0], skin);
+  b.addQuad(waist[2], waist[3], chest[3], chest[2], skin);
+  b.addQuad(waist[1], waist[2], chest[2], chest[1], skin);
+
+  // 3. Tête facettée & Lunettes de soleil sportives profilées
+  const chin = [0.0, 0.56, 0.14];
+  const nose = [0.0, 0.65, 0.17];
+  const brow = [0.0, 0.73, 0.13];
+  const crown = [0.0, 0.82, -0.02];
+  const cheekR = [0.12, 0.63, 0.08], cheekL = [-0.12, 0.63, 0.08];
+  const templeR = [0.12, 0.74, 0.02], templeL = [-0.12, 0.74, 0.02];
+
+  b.addTri(chin, nose, cheekR, skin);
+  b.addTri(chin, cheekL, nose, skin);
+  b.addTri(nose, brow, templeR, skin);
+  b.addTri(nose, templeL, brow, skin);
+  b.addTri(brow, crown, templeR, skin);
+  b.addTri(brow, templeL, crown, skin);
+
+  // Monture de lunettes profilée (arête et verres solaires)
+  const gY = 0.68, gZ = 0.16;
+  b.addQuad(
+    [-0.10, gY - 0.02, gZ], [0.10, gY - 0.02, gZ],
+    [0.10, gY + 0.02, gZ], [-0.10, gY + 0.02, gZ], glassesCol
+  );
+
+  // 4. Deux bras levés en "V" haut (\ o /) avec mains ouvertes et pouces
+  const armR = [
+    [0.22, 0.44, 0.00],
+    [0.44, 0.82, 0.04],
+    [0.64, 1.18, 0.08],
+    [0.68, 1.25, 0.09]
+  ];
+  b.buildArticulatedLimb(armR, [0.065, 0.055, 0.045, 0.04], 5, skin);
+  b.addQuad([0.64, 1.18, 0.07], [0.72, 1.34, 0.09], [0.76, 1.32, 0.09], [0.68, 1.17, 0.07], skin);
+  b.addTri([0.65, 1.20, 0.07], [0.60, 1.24, 0.08], [0.67, 1.24, 0.08], skin);
+
+  const armL = [
+    [-0.22, 0.44, 0.00],
+    [-0.44, 0.82, 0.04],
+    [-0.64, 1.18, 0.08],
+    [-0.68, 1.25, 0.09]
+  ];
+  b.buildArticulatedLimb(armL, [0.065, 0.055, 0.045, 0.04], 5, skin);
+  b.addQuad([-0.64, 1.18, 0.07], [-0.68, 1.17, 0.07], [-0.76, 1.32, 0.09], [-0.72, 1.34, 0.09], skin);
+  b.addTri([-0.65, 1.20, 0.07], [-0.67, 1.24, 0.08], [-0.60, 1.24, 0.08], skin);
+
+  // 5. Jambes immergées visibles sous l'eau
+  const legR_sub = [
+    [0.08, -0.05, 0.00], [0.09, -0.42, 0.04], [0.08, -0.78, 0.08], [0.08, -0.86, 0.14]
+  ];
+  const legL_sub = [
+    [-0.08, -0.05, 0.00], [-0.09, -0.42, 0.04], [-0.08, -0.78, 0.08], [-0.08, -0.86, 0.14]
+  ];
+  b.buildArticulatedLimb(legR_sub, [0.075, 0.06, 0.045, 0.04], 4, skin);
+  b.buildArticulatedLimb(legL_sub, [0.075, 0.06, 0.045, 0.04], 4, skin);
+
+  return b.buildGeometry();
+}
+
+/* Archétype Polyperfect : Le Surfeur avec planche et écume (media_1789619261899.png) */
+function createPolyperfectSurferGeo() {
+  const b = new LowPolyBuilder();
+  const skin = PP_PAL.skinTan;
+  const hairCol = PP_PAL.hairDark;
+  const white = PP_PAL.white;
+  const green = PP_PAL.boardshortGreen;
+  const surfDeck = PP_PAL.surfDeckYellow;
+  const surfRail = PP_PAL.surfRailRed;
+  const surfHull = PP_PAL.surfBottom;
+
+  // 1. Torse athlétique nu avec pectoraux facettés
+  const clavicleL = [-0.12, 1.44, 0.08], clavicleR = [0.12, 1.44, 0.08];
+  const sternumCenter = [0.00, 1.34, 0.14];
+  const pectBotL = [-0.14, 1.24, 0.12], pectBotR = [0.14, 1.24, 0.12];
+  const pectMid  = [0.00, 1.23, 0.13];
+  const shoulL   = [-0.26, 1.42, -0.02], shoulR = [0.26, 1.42, -0.02];
+  const backTop  = [0.00, 1.42, -0.12];
+
+  b.addTri([0, 1.46, 0.06], sternumCenter, clavicleR, skin);
+  b.addTri([0, 1.46, 0.06], clavicleL, sternumCenter, skin);
+  b.addTri(clavicleR, sternumCenter, pectBotR, skin);
+  b.addTri(clavicleL, pectBotL, sternumCenter, skin);
+  b.addTri(sternumCenter, pectMid, pectBotR, skin);
+  b.addTri(sternumCenter, pectBotL, pectMid, skin);
+  b.addTri(clavicleR, pectBotR, shoulR, skin);
+  b.addTri(clavicleL, shoulL, pectBotL, skin);
+
+  const waistR = [0.16, 0.94, 0.06], waistL = [-0.16, 0.94, 0.06];
+  const waistBack = [0.00, 0.94, -0.09];
+  b.addQuad(pectBotL, pectMid, [0, 0.94, 0.09], waistL, skin);
+  b.addQuad(pectMid, pectBotR, waistR, [0, 0.94, 0.09], skin);
+  b.addQuad(shoulR, backTop, waistBack, waistR, skin);
+  b.addQuad(shoulL, waistL, waistBack, backTop, skin);
+
+  // 2. Collier et Pendentif triangulaire blanc (Dent de requin)
+  b.addTri([-0.06, 1.46, 0.08], [0.00, 1.33, 0.15], [-0.04, 1.33, 0.14], white);
+  b.addTri([0.06, 1.46, 0.08], [0.04, 1.33, 0.14], [0.00, 1.33, 0.15], white);
+  const toothTopL = [-0.04, 1.33, 0.15];
+  const toothTopR = [0.04, 1.33, 0.15];
+  const toothTip  = [0.00, 1.23, 0.16];
+  b.addTri(toothTopL, toothTip, toothTopR, white);
+
+  // 3. Chevelure afro / bouclée sombre volumineuse
+  const chin = [0.0, 1.58, 0.14];
+  const brow = [0.0, 1.74, 0.14];
+  b.addTri(chin, brow, [0.12, 1.66, 0.08], skin);
+  b.addTri(chin, [-0.12, 1.66, 0.08], brow, skin);
+
+  const afroPeaks = [
+    [0.00, 1.96, -0.02], [0.18, 1.84, 0.06], [-0.18, 1.84, 0.06],
+    [0.20, 1.76, -0.08], [-0.20, 1.76, -0.08], [0.00, 1.86, 0.14], [0.00, 1.78, -0.16]
+  ];
+  b.addTri(brow, afroPeaks[5], afroPeaks[1], hairCol);
+  b.addTri(brow, afroPeaks[2], afroPeaks[5], hairCol);
+  b.addTri(afroPeaks[5], afroPeaks[0], afroPeaks[1], hairCol);
+  b.addTri(afroPeaks[5], afroPeaks[2], afroPeaks[0], hairCol);
+  b.addTri(afroPeaks[1], afroPeaks[0], afroPeaks[3], hairCol);
+  b.addTri(afroPeaks[2], afroPeaks[4], afroPeaks[0], hairCol);
+  b.addTri(afroPeaks[3], afroPeaks[0], afroPeaks[6], hairCol);
+  b.addTri(afroPeaks[4], afroPeaks[6], afroPeaks[0], hairCol);
+
+  // 4. Short de bain vert foncé et passants
+  const short_top = [
+    [0.17, 0.94, 0.07], [0.18, 0.94, -0.08], [-0.18, 0.94, -0.08], [-0.17, 0.94, 0.07]
+  ];
+  const short_bot = [
+    [0.18, 0.62, 0.09], [0.19, 0.62, -0.09], [-0.19, 0.62, -0.09], [-0.18, 0.62, 0.09]
+  ];
+  b.bridgeRings(short_top, short_bot, green);
+  // Bas de short / cuisses
+  b.buildArticulatedLimb([[0.10, 0.62, 0.0], [0.10, 0.52, 0.0]], [0.095, 0.085], 5, green);
+  b.buildArticulatedLimb([[-0.10, 0.62, 0.0], [-0.10, 0.52, 0.0]], [0.095, 0.085], 5, green);
+
+  // 5. Jambes athlétiques en posture de surf (Knees flexed, appuis solides sur la planche)
+  // Jambe avant (droite) : orientée vers l'avant de la planche
+  const legR_surf = [
+    [0.10, 0.52, 0.02],
+    [0.13, 0.34, 0.26],
+    [0.12, 0.17, 0.42],
+    [0.12, 0.11, 0.44]
+  ];
+  b.buildArticulatedLimb(legR_surf, [0.08, 0.065, 0.05, 0.045], 5, skin);
+  // Pied avant posé à plat sur le deck
+  b.addQuad([0.08, 0.11, 0.35], [0.16, 0.11, 0.35], [0.16, 0.11, 0.54], [0.08, 0.11, 0.54], skin);
+  b.addTri([0.12, 0.17, 0.42], [0.16, 0.11, 0.54], [0.08, 0.11, 0.54], skin);
+
+  // Jambe arrière (gauche) : en appui sur le tail pad
+  const legL_surf = [
+    [-0.10, 0.52, -0.02],
+    [-0.14, 0.33, -0.26],
+    [-0.13, 0.17, -0.42],
+    [-0.13, 0.11, -0.45]
+  ];
+  b.buildArticulatedLimb(legL_surf, [0.08, 0.065, 0.05, 0.045], 5, skin);
+  // Pied arrière posé à plat en travers du tail pad
+  b.addQuad([-0.18, 0.11, -0.36], [-0.08, 0.11, -0.36], [-0.08, 0.11, -0.54], [-0.18, 0.11, -0.54], skin);
+  b.addTri([-0.13, 0.17, -0.42], [-0.08, 0.11, -0.54], [-0.18, 0.11, -0.54], skin);
+
+  // 6. Bras équilibristes en posture de surf
+  const armR = [
+    [0.26, 1.40, -0.02], [0.38, 1.15, 0.06], [0.44, 0.92, 0.14], [0.46, 0.88, 0.18]
+  ];
+  const armL = [
+    [-0.26, 1.40, -0.02], [-0.38, 1.15, -0.08], [-0.44, 0.92, -0.04], [-0.46, 0.88, 0.00]
+  ];
+  b.buildArticulatedLimb(armR, [0.07, 0.06, 0.05, 0.04], 5, skin);
+  b.buildArticulatedLimb(armL, [0.07, 0.06, 0.05, 0.04], 5, skin);
+
+  // 7. Planche de surf profilée avec Rocker, Liseré rouge et Écume
+  const sZ_front = 1.35, sZ_back = -1.30;
+  const sRocker_front = 0.16;
+  const sY0 = 0.10; // Élévation du deck pour flottaison parfaite au-dessus de l'eau
+
+  const noseTip = [0.00, sY0 + sRocker_front, sZ_front];
+  const tailTip = [0.00, sY0 + 0.03, sZ_back];
+
+  const railR_mid = [0.28, sY0, 0.05], railL_mid = [-0.28, sY0, 0.05];
+  const railR_fwd = [0.20, sY0 + 0.07, 0.72], railL_fwd = [-0.20, sY0 + 0.07, 0.72];
+  const railR_aft = [0.22, sY0 + 0.01, -0.68], railL_aft = [-0.22, sY0 + 0.01, -0.68];
+
+  const deckMid_fwd = [0.00, sY0 + 0.09, 0.72];
+  const deckMid_ctr = [0.00, sY0 + 0.04, 0.05];
+  const deckMid_aft = [0.00, sY0 + 0.03, -0.68];
+
+  // Deck supérieur jaune / orange vif (orientation CCW vue de dessus)
+  b.addTri(noseTip, railR_fwd, deckMid_fwd, surfDeck);
+  b.addTri(noseTip, deckMid_fwd, railL_fwd, surfDeck);
+  b.addQuad(deckMid_fwd, railR_fwd, railR_mid, deckMid_ctr, surfDeck);
+  b.addQuad(deckMid_fwd, deckMid_ctr, railL_mid, railL_fwd, surfDeck);
+  b.addQuad(deckMid_ctr, railR_mid, railR_aft, deckMid_aft, surfDeck);
+  b.addQuad(deckMid_ctr, deckMid_aft, railL_aft, railL_mid, surfDeck);
+  b.addTri(tailTip, deckMid_aft, railR_aft, surfDeck);
+  b.addTri(tailTip, railL_aft, deckMid_aft, surfDeck);
+
+  // Stringer rouge central
+  const stripeW = 0.032;
+  b.addQuad([-stripeW, sY0 + 0.092, 0.72], [stripeW, sY0 + 0.092, 0.72],
+             [stripeW, sY0 + 0.042, 0.05], [-stripeW, sY0 + 0.042, 0.05], surfRail);
+  b.addQuad([-stripeW, sY0 + 0.042, 0.05], [stripeW, sY0 + 0.042, 0.05],
+             [stripeW, sY0 + 0.032, -0.68], [-stripeW, sY0 + 0.032, -0.68], surfRail);
+
+  // Rails latéraux biseautés rouge vif
+  const railBotR_mid = [0.27, sY0 - 0.04, 0.05], railBotL_mid = [-0.27, sY0 - 0.04, 0.05];
+  const railBotR_fwd = [0.19, sY0 + 0.03, 0.72], railBotL_fwd = [-0.19, sY0 + 0.03, 0.72];
+  const railBotR_aft = [0.21, sY0 - 0.03, -0.68], railBotL_aft = [-0.21, sY0 - 0.03, -0.68];
+  b.addQuad(railR_fwd, railBotR_fwd, railBotR_mid, railR_mid, surfRail);
+  b.addQuad(railR_mid, railBotR_mid, railBotR_aft, railR_aft, surfRail);
+  b.addQuad(railL_fwd, railL_mid, railBotL_mid, railBotL_fwd, surfRail);
+  b.addQuad(railL_mid, railL_aft, railBotL_aft, railBotL_mid, surfRail);
+
+  // Carène inférieure blanc cassé profilée
+  const hullCtr = [0.00, sY0 - 0.06, 0.05];
+  const hullFwd = [0.00, sY0 - 0.02, 0.72];
+  const hullAft = [0.00, sY0 - 0.04, -0.68];
+  b.addTri(noseTip, hullFwd, railBotR_fwd, surfHull);
+  b.addTri(noseTip, railBotL_fwd, hullFwd, surfHull);
+  b.addQuad(hullFwd, hullCtr, railBotR_mid, railBotR_fwd, surfHull);
+  b.addQuad(hullFwd, railBotL_fwd, railBotL_mid, hullCtr, surfHull);
+  b.addQuad(hullCtr, hullAft, railBotR_aft, railBotR_mid, surfHull);
+  b.addQuad(hullCtr, railBotL_mid, railBotL_aft, hullAft, surfHull);
+  b.addTri(tailTip, railBotR_aft, hullAft, surfHull);
+  b.addTri(tailTip, hullAft, railBotL_aft, surfHull);
+
+  // Aileron de surf (Fin) sous la planche
+  b.addTri(
+    [0.00, sY0 - 0.04, -0.85],
+    [0.00, sY0 - 0.16, -1.05],
+    [0.00, sY0 - 0.04, -1.05],
+    PP_PAL.hairDark
+  );
+
+  // Écume d'eau polygonale stylisée traînant à l'arrière
+  const foamY = sY0 - 0.01;
+  const foamBack = [
+    [-0.38, foamY, -0.85], [0.00, foamY, -0.75], [0.38, foamY, -0.85],
+    [0.52, foamY, -1.45], [0.18, foamY, -1.70], [-0.18, foamY, -1.70], [-0.52, foamY, -1.45]
+  ];
+  for (let i = 0; i < foamBack.length - 1; i++) {
+    b.addTri(tailTip, foamBack[i], foamBack[i + 1], PP_PAL.waterFoam);
+  }
+
+  return b.buildGeometry();
+}
+
+/* Bouée Donut habitée Polyperfect */
 const donutFloatGeo = (() => {
   const parts = [];
   const torus = new THREE.TorusGeometry(1.35, 0.52, 8, 16);
@@ -5678,105 +6123,83 @@ const donutFloatGeo = (() => {
   const icing = new THREE.TorusGeometry(1.36, 0.42, 8, 16);
   icing.rotateX(Math.PI / 2); icing.translate(0, 0.12, 0);
   parts.push(prep(icing, PAL.inflatableDonut));
-  // Baigneur assis au centre
-  parts.push(bx(0.55, 0.62, 0.35, 0xef4444, 0, 0.32, 0)); // maillot rouge
-  const head = new THREE.SphereGeometry(0.24, 6, 5); head.translate(0, 0.88, 0);
+  // Baigneur assis au centre avec torse facetté et tête Polyperfect
+  parts.push(prismG(0.55, 0.32, 0.42, 0.28, 0.58, 0xef4444, 0, 0.32, 0));
+  const head = new THREE.IcosahedronGeometry(0.22, 0); head.translate(0, 0.76, 0);
   parts.push(prep(head, 0xf4cbb2));
-  const hair = new THREE.DodecahedronGeometry(0.24, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 0.98, -0.04);
+  const hair = new THREE.DodecahedronGeometry(0.24, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 0.86, -0.04);
   parts.push(prep(hair, 0x4a3018));
-  parts.push(bx(0.36, 0.10, 0.12, 0x18181b, 0, 0.92, 0.18)); // lunettes
+  parts.push(bx(0.28, 0.05, 0.08, 0x18181b, 0, 0.80, 0.16));
   // Bras reposant sur la bouée
-  parts.push(segCyl(-0.25, 0.48, 0, -0.92, 0.32, 0.35, 0.08, 0.07, 4, 0xf4cbb2));
-  parts.push(segCyl(0.25, 0.48, 0, 0.92, 0.32, 0.35, 0.08, 0.07, 4, 0xf4cbb2));
+  parts.push(prismG(0.12, 0.12, 0.09, 0.09, 0.65, 0xf4cbb2, -0.55, 0.38, 0.15, 0.3, 0, 1.1));
+  parts.push(prismG(0.12, 0.12, 0.09, 0.09, 0.65, 0xf4cbb2, 0.55, 0.38, 0.15, 0.3, 0, -1.1));
   return mergeGeometries(parts, false);
 })();
 
-/* Bouée Flamant Rose habitée */
+/* Bouée Flamant Rose habitée Polyperfect */
 const flamingoFloatGeo = (() => {
   const parts = [];
   const torus = new THREE.TorusGeometry(1.4, 0.52, 8, 16);
   torus.rotateX(Math.PI / 2);
   parts.push(prep(torus, PAL.inflatableFlamingo));
-  // Cou gracieux courbé
   parts.push(prep(segCyl(0, 0.3, 1.1, 0, 1.6, 1.55, 0.24, 0.16, 6, PAL.inflatableFlamingo)));
   parts.push(bx(0.32, 0.36, 0.55, PAL.inflatableFlamingo, 0, 1.65, 1.75));
   parts.push(coneG(0.18, 0.52, 4, 0x18181b, 0, 1.58, 2.12, -Math.PI / 2));
   parts.push(coneG(0.24, 0.65, 4, PAL.inflatableFlamingo, 0, 0.5, -1.35, Math.PI / 3));
-  // Baigneur assis tenant le cou
-  parts.push(bx(0.55, 0.62, 0.35, 0x06b6d4, 0, 0.32, -0.22)); // maillot turquoise
-  const head = new THREE.SphereGeometry(0.24, 6, 5); head.translate(0, 0.88, -0.22);
+  parts.push(prismG(0.52, 0.30, 0.40, 0.26, 0.58, 0x06b6d4, 0, 0.32, -0.22));
+  const head = new THREE.IcosahedronGeometry(0.22, 0); head.translate(0, 0.76, -0.22);
   parts.push(prep(head, 0xe0a67e));
-  const bun = new THREE.SphereGeometry(0.14, 6, 6); bun.translate(0, 1.04, -0.32);
-  parts.push(prep(bun, 0xf5d061)); // chignon blond
-  parts.push(bx(0.36, 0.10, 0.12, 0x18181b, 0, 0.92, -0.04));
-  parts.push(segCyl(-0.25, 0.48, -0.15, -0.18, 0.65, 0.75, 0.08, 0.07, 4, 0xe0a67e));
-  parts.push(segCyl(0.25, 0.48, -0.15, 0.18, 0.65, 0.75, 0.08, 0.07, 4, 0xe0a67e));
+  const bun = new THREE.DodecahedronGeometry(0.14, 0); bun.translate(0, 0.94, -0.32);
+  parts.push(prep(bun, 0xf5d061));
+  parts.push(bx(0.28, 0.05, 0.08, 0x18181b, 0, 0.80, -0.08));
+  parts.push(prismG(0.11, 0.11, 0.08, 0.08, 0.68, 0xe0a67e, -0.20, 0.54, 0.30, 0.8, 0.2, 0.3));
+  parts.push(prismG(0.11, 0.11, 0.08, 0.08, 0.68, 0xe0a67e, 0.20, 0.54, 0.30, 0.8, -0.2, -0.3));
   return mergeGeometries(parts, false);
 })();
 
-/* Paddleboarder / Surfeur Minipoly sur l'eau */
+/* Paddleboarder / Surfeur Polyperfect */
 const paddleboardGeo = (() => {
   const parts = [];
-  // Planche effilée moderne
   parts.push(bx(0.85, 0.12, 3.4, 0xf8fafc, 0, 0.06, 0));
-  parts.push(bx(0.22, 0.13, 3.42, 0xef4444, 0, 0.06, 0)); // bande racing rouge
-  parts.push(bx(0.65, 0.14, 1.8, 0xf59e0b, 0, 0.07, -0.2)); // pad en mousse
-  // Nez relevé
+  parts.push(bx(0.22, 0.13, 3.42, 0xef4444, 0, 0.06, 0));
+  parts.push(bx(0.65, 0.14, 1.8, 0xf59e0b, 0, 0.07, -0.2));
   const nose = new THREE.ConeGeometry(0.42, 0.75, 4);
   nose.rotateX(Math.PI / 2); nose.scale(1, 0.25, 1); nose.translate(0, 0.08, 1.85);
   parts.push(prep(nose, 0xf8fafc));
-  // Surfeur assis / à genoux
-  parts.push(bx(0.52, 0.58, 0.32, 0x0284c7, 0, 0.48, -0.15)); // short bleu
-  const head = new THREE.SphereGeometry(0.22, 6, 5); head.translate(0, 0.96, -0.15);
+  // Paddler assis avec anatomie low-poly
+  parts.push(prismG(0.50, 0.28, 0.40, 0.26, 0.58, 0x0284c7, 0, 0.46, -0.15));
+  const head = new THREE.IcosahedronGeometry(0.22, 0); head.translate(0, 0.94, -0.15);
   parts.push(prep(head, 0xc88958));
-  const hair = new THREE.DodecahedronGeometry(0.23, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 1.04, -0.18);
+  const hair = new THREE.DodecahedronGeometry(0.23, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 1.02, -0.18);
   parts.push(prep(hair, 0x18181b));
-  // Pagaie de paddle en travers
   parts.push(segCyl(-0.95, 0.55, 0.4, 0.95, 0.35, -0.4, 0.035, 0.035, 4, 0x18181b));
   parts.push(bx(0.26, 0.52, 0.04, 0xef4444, 0.95, 0.25, -0.4, 0.4));
   return mergeGeometries(parts, false);
 })();
 
-/* Nageur avec bouée couronne de sauvetage saluant hors de l'eau */
-const swimmerRingGeo = (() => {
-  const parts = [];
-  // Bouée couronne rayée rouge et blanc
-  const torus = new THREE.TorusGeometry(0.68, 0.20, 8, 16);
-  torus.rotateX(Math.PI / 2);
-  parts.push(prep(torus, PAL.lifeRingRed));
-  const stripe = new THREE.TorusGeometry(0.69, 0.21, 4, 8);
-  stripe.rotateX(Math.PI / 2);
-  parts.push(prep(stripe, PAL.lifeRingWhite));
-  // Buste immergé
-  parts.push(bx(0.48, 0.52, 0.28, 0xef4444, 0, 0.22, 0));
-  const head = new THREE.SphereGeometry(0.22, 6, 5); head.translate(0, 0.68, 0);
-  parts.push(prep(head, 0xe2a87e));
-  const hair = new THREE.DodecahedronGeometry(0.23, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 0.76, -0.04);
-  parts.push(prep(hair, 0x4a3018));
-  // Bras gauche reposant sur la bouée
-  parts.push(segCyl(-0.24, 0.32, 0, -0.62, 0.18, 0.22, 0.07, 0.07, 4, 0xe2a87e));
-  // Bras droit levé saluant la plage
-  parts.push(segCyl(0.24, 0.32, 0, 0.45, 1.05, 0.12, 0.07, 0.06, 4, 0xe2a87e));
-  return mergeGeometries(parts, false);
-})();
+/* Instanciations géométriques des personnages aquatiques Polyperfect */
+const swimmerRingGeo = createPolyperfectSwimmerInRingGeo();
+const surferGeo = createPolyperfectSurferGeo();
 
-// Positions strictement DANS L'EAU DU LAGON (au large de la plage)
+// Positions dans l'eau du lagon au large des plages d'Anse Vata et Baie des Citrons
 const FLOAT_CONFIGS = [
   { type: 'flamingo', x: 245,  z: 774, ph: 1.4 },
   { type: 'donut',    x: 155,  z: 766, ph: 0.0 },
-  { type: 'paddle',   x: 295,  z: 780, ph: 2.1 },
-  { type: 'swimring', x: 205,  z: 762, ph: 3.5 },
+  { type: 'surfer',   x: 320,  z: 785, ph: 2.1 }, // Surfeur Polyperfect sur le lagon
+  { type: 'swimring', x: 205,  z: 762, ph: 3.5 }, // Nageur Polyperfect bras en V
   { type: 'flamingo', x: 370,  z: 775, ph: 2.8 },
   { type: 'donut',    x: -175, z: 735, ph: 4.2 },
-  { type: 'flamingo', x: -285, z: 712, ph: 5.3 },
-  { type: 'swimring', x: -230, z: 724, ph: 0.8 }
+  { type: 'surfer',   x: -245, z: 735, ph: 5.1 }, // Surfeur Polyperfect Baie des Citrons
+  { type: 'swimring', x: -230, z: 724, ph: 0.8 },
+  { type: 'paddle',   x: 285,  z: 776, ph: 4.0 }
 ];
 
-const floatMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+const floatMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
 FLOAT_CONFIGS.forEach(fc => {
   let geo;
   if (fc.type === 'flamingo') geo = flamingoFloatGeo;
   else if (fc.type === 'donut') geo = donutFloatGeo;
+  else if (fc.type === 'surfer') geo = surferGeo;
   else if (fc.type === 'paddle') geo = paddleboardGeo;
   else geo = swimmerRingGeo;
 
@@ -6639,52 +7062,78 @@ function getBeachElevation(x, z) {
 
 const pHeadGeo = (() => {
   const parts = [];
-  /* Tête stylisée */
-  parts.push(prep(new THREE.SphereGeometry(0.24 * PS, 6, 5).translate(0, 1.6 * PS, 0), 0xffffff));
-  /* Chevelure sculptée Minipoly */
-  const hair = new THREE.DodecahedronGeometry(0.25 * PS, 0);
-  hair.scale(1.05, 0.7, 1.05); hair.translate(0, 1.72 * PS, -0.04 * PS);
-  parts.push(prep(hair, 0x3f2e20));
-  /* Lunettes de soleil noires teintées */
-  parts.push(bx(0.38 * PS, 0.11 * PS, 0.12 * PS, 0x18181b, 0, 1.64 * PS, 0.20 * PS));
-  /* Chapeau de paille / Bob tropical calédonien */
-  const crown = new THREE.CylinderGeometry(0.26 * PS, 0.25 * PS, 0.22 * PS, 8);
-  crown.translate(0, 1.82 * PS, 0);
-  parts.push(prep(crown, 0xf4bf56));
-  const brim = new THREE.CylinderGeometry(0.48 * PS, 0.48 * PS, 0.05 * PS, 8);
-  brim.translate(0, 1.74 * PS, 0);
-  parts.push(prep(brim, 0xf4bf56));
-  /* Ruban de chapeau rouge corail */
-  parts.push(bx(0.54 * PS, 0.06 * PS, 0.54 * PS, 0xef4444, 0, 1.79 * PS, 0));
+  // 1. Tête biseautée anatomique Polyperfect (0xffffff neutre pour que pHeads.setColorAt(i, skinCol) s'applique fidèlement)
+  const skull = prismG(0.40 * PS, 0.38 * PS, 0.34 * PS, 0.32 * PS, 0.46 * PS, 0xffffff, 0, 1.58 * PS, 0);
+  parts.push(skull);
+  // Cou cylindrique
+  parts.push(prep(new THREE.CylinderGeometry(0.12 * PS, 0.14 * PS, 0.18 * PS, 6).translate(0, 1.30 * PS, 0), 0xffffff));
+  // Nez stylisé en biseau
+  parts.push(bx(0.08 * PS, 0.10 * PS, 0.08 * PS, 0xffffff, 0, 1.56 * PS, 0.22 * PS));
+  // Oreilles biseautées
+  parts.push(bx(0.05 * PS, 0.10 * PS, 0.08 * PS, 0xffffff, -0.20 * PS, 1.58 * PS, 0));
+  parts.push(bx(0.05 * PS, 0.10 * PS, 0.08 * PS, 0xffffff,  0.20 * PS, 1.58 * PS, 0));
+
+  // 2. Coiffure volumique facettée Polyperfect (brun très sombre pour rester naturel sous toute carnation)
+  const hairTop = new THREE.DodecahedronGeometry(0.24 * PS, 0);
+  hairTop.scale(1.05, 0.68, 1.10); hairTop.translate(0, 1.76 * PS, -0.04 * PS);
+  parts.push(prep(hairTop, 0x140f0c));
+  const hairBack = bx(0.40 * PS, 0.26 * PS, 0.12 * PS, 0x140f0c, 0, 1.62 * PS, -0.18 * PS);
+  parts.push(hairBack);
+
+  // 3. Lunettes de soleil sportives profilées Minipoly (monture noire ultra-fine, verres foncés)
+  parts.push(bx(0.36 * PS, 0.07 * PS, 0.08 * PS, 0x111827, 0, 1.61 * PS, 0.21 * PS));
+  parts.push(bx(0.03 * PS, 0.05 * PS, 0.24 * PS, 0x111827, -0.19 * PS, 1.61 * PS, 0.09 * PS));
+  parts.push(bx(0.03 * PS, 0.05 * PS, 0.24 * PS, 0x111827,  0.19 * PS, 1.61 * PS, 0.09 * PS));
+
   return mergeGeometries(parts, false);
 })();
 
 const pBodyGeo = (() => {
   const parts = [];
-  /* Torse polo / chemisette estivale */
-  parts.push(bx(0.60 * PS, 0.72 * PS, 0.35 * PS, 0xffffff, 0, 1.15 * PS, 0));
-  /* Col de chemise */
-  parts.push(bx(0.38 * PS, 0.12 * PS, 0.36 * PS, 0xffffff, 0, 1.48 * PS, 0));
-  /* Sac à bandoulière / tote bag de plage */
-  parts.push(bx(0.18 * PS, 0.35 * PS, 0.22 * PS, 0x0284c7, 0.35 * PS, 0.95 * PS, 0.05 * PS));
-  /* Shorts / bermudas de bain */
-  parts.push(bx(0.56 * PS, 0.35 * PS, 0.33 * PS, PAL.legs, 0, 0.72 * PS, 0));
-  /* Ceinture */
-  parts.push(bx(0.58 * PS, 0.07 * PS, 0.35 * PS, 0x475569, 0, 0.88 * PS, 0));
+  // 1. Torse trapézoïdal athlétique Polyperfect (Blanc 0xffffff pour teinter avec pBodies.setColorAt(i, shirtCol))
+  const torso = prismG(0.54 * PS, 0.34 * PS, 0.42 * PS, 0.28 * PS, 0.62 * PS, 0xffffff, 0, 1.15 * PS, 0);
+  parts.push(torso);
+  // Col polo / col chemisette en V
+  parts.push(bx(0.32 * PS, 0.08 * PS, 0.34 * PS, 0xffffff, 0, 1.44 * PS, 0.02 * PS));
+  // Épaules / manchons courts
+  parts.push(bx(0.62 * PS, 0.16 * PS, 0.32 * PS, 0xffffff, 0, 1.36 * PS, 0));
+
+  // 2. Ceinture et boucle sculptée
+  parts.push(bx(0.44 * PS, 0.08 * PS, 0.29 * PS, 0x334155, 0, 0.82 * PS, 0));
+  parts.push(bx(0.12 * PS, 0.09 * PS, 0.30 * PS, 0xd0d5dc, 0, 0.82 * PS, 0));
+
+  // 3. Bermudas / Shorts Polyperfect (anthracite chic)
+  parts.push(prismG(0.46 * PS, 0.30 * PS, 0.48 * PS, 0.32 * PS, 0.32 * PS, 0x1e293b, 0, 0.64 * PS, 0));
+
   return mergeGeometries(parts, false);
 })();
 
-/* Membres articulés gauche et droit avec chaussures / sandales de plage */
 const pLimbLGeo = (() => mergeGeometries([
-  prep(new THREE.BoxGeometry(0.18 * PS, 0.65 * PS, 0.22 * PS).translate(-0.16 * PS, -0.32 * PS, 0), PAL.legs),
-  prep(new THREE.BoxGeometry(0.20 * PS, 0.12 * PS, 0.30 * PS).translate(-0.16 * PS, -0.62 * PS, 0.04 * PS), 0x18181b),
-  prep(new THREE.BoxGeometry(0.15 * PS, 0.60 * PS, 0.15 * PS).translate(-0.38 * PS, 0.30 * PS, 0), PAL.skin[0])
+  // Bras gauche Polyperfect : biseau biceps + avant-bras + main avec pouce
+  prismG(0.14 * PS, 0.14 * PS, 0.12 * PS, 0.12 * PS, 0.34 * PS, 0xc88958, -0.34 * PS, 0.42 * PS, 0),
+  prismG(0.12 * PS, 0.12 * PS, 0.10 * PS, 0.10 * PS, 0.32 * PS, 0xc88958, -0.34 * PS, 0.12 * PS, 0),
+  bx(0.09 * PS, 0.12 * PS, 0.11 * PS, 0xc88958, -0.34 * PS, -0.08 * PS, 0),
+
+  // Jambe gauche Polyperfect : cuisse musclée + mollet fuselé + sneaker stylisée
+  prismG(0.20 * PS, 0.18 * PS, 0.15 * PS, 0.15 * PS, 0.40 * PS, 0xc88958, -0.15 * PS, -0.22 * PS, 0),
+  prismG(0.15 * PS, 0.15 * PS, 0.12 * PS, 0.12 * PS, 0.36 * PS, 0xc88958, -0.15 * PS, -0.56 * PS, 0),
+  // Sneaker : tige sombre + semelle blanche épaisse Polyperfect
+  bx(0.16 * PS, 0.11 * PS, 0.30 * PS, 0x0f172a, -0.15 * PS, -0.74 * PS, 0.05 * PS),
+  bx(0.17 * PS, 0.05 * PS, 0.31 * PS, 0xffffff, -0.15 * PS, -0.80 * PS, 0.05 * PS)
 ], false))();
 
 const pLimbRGeo = (() => mergeGeometries([
-  prep(new THREE.BoxGeometry(0.18 * PS, 0.65 * PS, 0.22 * PS).translate(0.16 * PS, -0.32 * PS, 0), PAL.legs),
-  prep(new THREE.BoxGeometry(0.20 * PS, 0.12 * PS, 0.30 * PS).translate(0.16 * PS, -0.62 * PS, 0.04 * PS), 0x18181b),
-  prep(new THREE.BoxGeometry(0.15 * PS, 0.60 * PS, 0.15 * PS).translate(0.38 * PS, 0.30 * PS, 0), PAL.skin[0])
+  // Bras droit Polyperfect
+  prismG(0.14 * PS, 0.14 * PS, 0.12 * PS, 0.12 * PS, 0.34 * PS, 0xc88958, 0.34 * PS, 0.42 * PS, 0),
+  prismG(0.12 * PS, 0.12 * PS, 0.10 * PS, 0.10 * PS, 0.32 * PS, 0xc88958, 0.34 * PS, 0.12 * PS, 0),
+  bx(0.09 * PS, 0.12 * PS, 0.11 * PS, 0xc88958, 0.34 * PS, -0.08 * PS, 0),
+
+  // Jambe droite Polyperfect
+  prismG(0.20 * PS, 0.18 * PS, 0.15 * PS, 0.15 * PS, 0.40 * PS, 0xc88958, 0.15 * PS, -0.22 * PS, 0),
+  prismG(0.15 * PS, 0.15 * PS, 0.12 * PS, 0.12 * PS, 0.36 * PS, 0xc88958, 0.15 * PS, -0.56 * PS, 0),
+  // Sneaker droite
+  bx(0.16 * PS, 0.11 * PS, 0.30 * PS, 0x0f172a, 0.15 * PS, -0.74 * PS, 0.05 * PS),
+  bx(0.17 * PS, 0.05 * PS, 0.31 * PS, 0xffffff, 0.15 * PS, -0.80 * PS, 0.05 * PS)
 ], false))();
 
 const pBodies = instanced(pBodyGeo, 240, { cast: true });
@@ -6780,79 +7229,194 @@ for (let k = 0; k < 22; k++) {
   addPerson('swimmer', { x: sx, z: sz, ph: rnd() * 6.28, isWaving });
 }
 
-/* 5.1 Sauveteuse Minipoly en patrouille de course le long du rivage (Conforme Référence) */
-const lgSkin = 0xf6ceb4;
-const lgRed = PAL.swimwearLifeguard; // 0xff2222
-const lgBlonde = PAL.hairBlonde;     // 0xf5d061
+/* 5.1 Sauveteuse Polyperfect en patrouille de course le long du rivage (Conforme Référence media_1789619211754.png) */
+function createPolyperfectLifeguardGeo() {
+  const b = new LowPolyBuilder();
+  const skin = PP_PAL.skinFair;
+  const red = PP_PAL.lifeguardRed;
+  const blonde = PP_PAL.hairBlonde;
 
-const lgTorsoGeo = (() => {
-  const parts = [];
-  // Torse maillot de bain une pièce rouge vif
-  parts.push(bx(0.50, 0.65, 0.30, lgRed, 0, 1.15, 0));
-  // Décolleté & bretelles
-  parts.push(bx(0.42, 0.12, 0.31, lgRed, 0, 1.48, 0));
-  // Échancrure maillot
-  parts.push(bx(0.48, 0.22, 0.28, lgRed, 0, 0.82, 0));
-  // Cou et décolleté peau
-  parts.push(cylG(0.12, 0.14, 0.22, 6, lgSkin, 0, 1.54, 0));
-  // Tête facettée
-  const head = new THREE.SphereGeometry(0.22, 6, 5);
-  head.translate(0, 1.72, 0);
-  parts.push(prep(head, lgSkin));
-  // Chevelure blonde
-  const hair = new THREE.DodecahedronGeometry(0.23, 0);
-  hair.scale(1.05, 0.70, 1.05); hair.translate(0, 1.80, -0.04);
-  parts.push(prep(hair, lgBlonde));
-  // Chignon blond haut
-  const bun = new THREE.SphereGeometry(0.14, 6, 6);
-  bun.translate(0, 1.95, -0.15);
-  parts.push(prep(bun, lgBlonde));
-  // Élastique rouge
-  const band = new THREE.TorusGeometry(0.09, 0.03, 5, 10);
-  band.translate(0, 1.88, -0.13);
-  parts.push(prep(band, lgRed));
-  // Lunettes de soleil sportives
-  parts.push(bx(0.34, 0.08, 0.10, 0x18181b, 0, 1.74, 0.18));
-  // Bouée tube rouge (torpedo buoy) tenue sous le bras droit
-  const can = new THREE.CylinderGeometry(0.12, 0.12, 0.88, 8);
-  can.rotateZ(Math.PI / 2); can.translate(0.38, 1.18, 0.08);
-  parts.push(prep(can, PAL.torpedoBuoy));
-  const tip1 = new THREE.ConeGeometry(0.12, 0.24, 8);
-  tip1.rotateZ(-Math.PI / 2); tip1.translate(0.88, 1.18, 0.08);
-  parts.push(prep(tip1, PAL.torpedoBuoy));
-  const tip2 = new THREE.ConeGeometry(0.12, 0.24, 8);
-  tip2.rotateZ(Math.PI / 2); tip2.translate(-0.12, 1.18, 0.08);
-  parts.push(prep(tip2, PAL.torpedoBuoy));
-  // Sangle blanche en diagonale sur le buste
-  parts.push(segCyl(-0.18, 1.48, 0.16, 0.22, 0.95, -0.16, 0.022, 0.022, 3, 0xffffff));
-  return mergeGeometries(parts, false);
-})();
+  // --- A. BUSTE & TORSE SCULPTÉ (Maillot de bain une pièce rouge) ---
+  const r0_neck = [
+    [0.00, 1.48, 0.08], [0.08, 1.48, 0.03], [0.07, 1.49, -0.06],
+    [-0.07, 1.49, -0.06], [-0.08, 1.48, 0.03]
+  ];
+  const r1_chest = [
+    [0.00, 1.38, 0.14], [0.18, 1.38, 0.08], [0.22, 1.37, -0.02],
+    [0.12, 1.38, -0.10], [-0.12, 1.38, -0.10], [-0.22, 1.37, -0.02],
+    [-0.18, 1.38, 0.08]
+  ];
+  b.addTri(r0_neck[0], r1_chest[0], r1_chest[1], skin);
+  b.addTri(r0_neck[0], r1_chest[6], r1_chest[0], skin);
+  b.addTri(r0_neck[1], r1_chest[1], r1_chest[2], skin);
+  b.addTri(r0_neck[4], r1_chest[5], r1_chest[6], skin);
+  b.addQuad(r0_neck[2], r0_neck[3], r1_chest[4], r1_chest[3], skin);
 
-const lgLimbLGeo = (() => mergeGeometries([
-  prep(new THREE.BoxGeometry(0.16, 0.72, 0.18).translate(-0.15, -0.36, 0), lgSkin),
-  prep(new THREE.BoxGeometry(0.16, 0.08, 0.24).translate(-0.15, -0.74, 0.04), 0xef4444),
-  prep(new THREE.BoxGeometry(0.12, 0.58, 0.12).translate(-0.34, 0.32, 0), lgSkin)
-], false))();
+  const r2_waist = [
+    [0.00, 1.12, 0.11], [0.12, 1.12, 0.07], [0.15, 1.12, -0.01],
+    [0.10, 1.12, -0.08], [-0.10, 1.12, -0.08], [-0.15, 1.12, -0.01],
+    [-0.12, 1.12, 0.07]
+  ];
+  for (let i = 0; i < 7; i++) {
+    const next = (i + 1) % 7;
+    b.addQuad(r1_chest[i], r2_waist[i], r2_waist[next], r1_chest[next], red);
+  }
 
-const lgLimbRGeo = (() => mergeGeometries([
-  prep(new THREE.BoxGeometry(0.16, 0.72, 0.18).translate(0.15, -0.36, 0), lgSkin),
-  prep(new THREE.BoxGeometry(0.16, 0.08, 0.24).translate(0.15, -0.74, 0.04), 0xef4444),
-  prep(new THREE.BoxGeometry(0.12, 0.58, 0.12).translate(0.34, 0.32, 0), lgSkin)
-], false))();
+  const r3_hips = [
+    [0.00, 0.88, 0.12], [0.14, 0.88, 0.09], [0.19, 0.88, 0.00],
+    [0.13, 0.88, -0.10], [-0.13, 0.88, -0.10], [-0.19, 0.88, 0.00],
+    [-0.14, 0.88, 0.09]
+  ];
+  for (let i = 0; i < 7; i++) {
+    const next = (i + 1) % 7;
+    b.addQuad(r2_waist[i], r3_hips[i], r3_hips[next], r2_waist[next], red);
+  }
 
-const lgMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-const lgTorsoMesh = new THREE.Mesh(lgTorsoGeo, lgMat);
-const lgLimbLMesh = new THREE.Mesh(lgLimbLGeo, lgMat);
-const lgLimbRMesh = new THREE.Mesh(lgLimbRGeo, lgMat);
-[lgTorsoMesh, lgLimbLMesh, lgLimbRMesh].forEach(m => {
-  m.scale.set(1.35, 1.35, 1.35);
-  m.castShadow = true;
-});
+  const crotch_front = [0.00, 0.72, 0.08];
+  const crotch_bot   = [0.00, 0.68, -0.02];
+  const crotch_back  = [0.00, 0.74, -0.11];
+  b.addTri(r3_hips[0], r3_hips[1], crotch_front, red);
+  b.addTri(r3_hips[0], crotch_front, r3_hips[6], red);
+  b.addTri(r3_hips[3], r3_hips[4], crotch_back, red);
+  b.addQuad(crotch_front, crotch_bot, crotch_back, r3_hips[3], red);
+  b.addQuad(crotch_front, r3_hips[4], crotch_back, crotch_bot, red);
+
+  // --- B. TÊTE, VISAGE & CHIGNON DYNAMIQUE BLOND ---
+  const chin     = [0.00, 1.62, 0.15];
+  const nose     = [0.00, 1.70, 0.18];
+  const brow     = [0.00, 1.77, 0.14];
+  const cheekR   = [0.11, 1.68, 0.08];
+  const cheekL   = [-0.11, 1.68, 0.08];
+  const templeR  = [0.12, 1.79, 0.02];
+  const templeL  = [-0.12, 1.79, 0.02];
+  const occiput  = [0.00, 1.74, -0.12];
+
+  b.addTri(chin, nose, cheekR, skin);
+  b.addTri(chin, cheekL, nose, skin);
+  b.addTri(nose, brow, templeR, skin);
+  b.addTri(nose, templeL, brow, skin);
+  b.addTri(nose, templeR, cheekR, skin);
+  b.addTri(nose, cheekL, templeL, skin);
+
+  const hairPeak  = [0.00, 1.90, 0.06];
+  const hairCrown = [0.00, 1.95, -0.06];
+  const bunApex   = [0.00, 2.05, -0.15];
+  const bunR      = [0.09, 1.96, -0.14];
+  const bunL      = [-0.09, 1.96, -0.14];
+  const bunTop    = [0.00, 2.02, -0.08];
+  const bunBot    = [0.00, 1.88, -0.18];
+
+  b.addTri(brow, hairPeak, templeR, blonde);
+  b.addTri(brow, templeL, hairPeak, blonde);
+  b.addTri(hairPeak, hairCrown, templeR, blonde);
+  b.addTri(hairPeak, templeL, hairCrown, blonde);
+  b.addTri(templeR, hairCrown, occiput, blonde);
+  b.addTri(templeL, occiput, hairCrown, blonde);
+
+  b.addTri(hairCrown, bunTop, bunR, blonde);
+  b.addTri(hairCrown, bunL, bunTop, blonde);
+  b.addTri(bunTop, bunApex, bunR, blonde);
+  b.addTri(bunTop, bunL, bunApex, blonde);
+  b.addTri(bunApex, bunBot, bunR, blonde);
+  b.addTri(bunApex, bunL, bunBot, blonde);
+  b.addTri(bunBot, occiput, bunR, blonde);
+  b.addTri(bunBot, bunL, occiput, blonde);
+
+  // Lunettes de soleil sportives discrètes
+  b.addQuad([-0.10, 1.69, 0.17], [0.10, 1.69, 0.17], [0.10, 1.73, 0.17], [-0.10, 1.73, 0.17], PP_PAL.sunglasses);
+
+  // --- C. JAMBE AVANT (GAUCHE) : EXTENSION EN SPRINT ---
+  const legL_joints = [
+    [-0.13, 0.80, 0.02],
+    [-0.15, 0.44, 0.26],
+    [-0.13, 0.10, 0.18],
+    [-0.13, 0.04, 0.16]
+  ];
+  b.buildArticulatedLimb(legL_joints, [0.10, 0.075, 0.05, 0.045], 5, skin);
+
+  const footL_heel_top  = [-0.13, 0.08, 0.10];
+  const footL_toe_top   = [-0.13, 0.05, 0.28];
+  b.addQuad(
+    [-0.17, 0.01, 0.08], [-0.09, 0.01, 0.08],
+    [-0.09, 0.01, 0.28], [-0.17, 0.01, 0.28], skin
+  );
+  b.addTri(footL_heel_top, [-0.13, 0.04, 0.16], footL_toe_top, skin);
+
+  // --- D. JAMBE ARRIÈRE (DROITE) : FLEXION À 90° ---
+  const legR_joints = [
+    [0.13, 0.80, 0.00],
+    [0.15, 0.52, -0.28],
+    [0.14, 0.74, -0.62],
+    [0.14, 0.80, -0.74]
+  ];
+  b.buildArticulatedLimb(legR_joints, [0.10, 0.075, 0.05, 0.045], 5, skin);
+
+  const footR_heel = [0.14, 0.84, -0.72];
+  const footR_toe  = [0.14, 0.92, -0.88];
+  b.addTri(footR_heel, [0.10, 0.78, -0.78], footR_toe, skin);
+  b.addTri(footR_heel, footR_toe, [0.18, 0.78, -0.78], skin);
+
+  // --- E. BRAS GAUCHE : BALANCIER ARRIÈRE COUDE PLIÉ À 90° ---
+  const armL_joints = [
+    [-0.22, 1.36, 0.00],
+    [-0.27, 1.10, -0.22],
+    [-0.23, 1.14, 0.00],
+    [-0.22, 1.14, 0.08]
+  ];
+  b.buildArticulatedLimb(armL_joints, [0.065, 0.055, 0.045, 0.04], 5, skin);
+  b.addTri([-0.22, 1.14, 0.08], [-0.19, 1.18, 0.06], [-0.22, 1.14, 0.13], skin);
+
+  // --- F. BRAS DROIT & VÉRITABLE BOUÉE TUBE PROFILÉE (RESCUE CAN) ---
+  const armR_joints = [
+    [0.22, 1.36, 0.00],
+    [0.25, 1.12, 0.16],
+    [0.24, 0.88, 0.30],
+    [0.24, 0.85, 0.35]
+  ];
+  b.buildArticulatedLimb(armR_joints, [0.065, 0.055, 0.045, 0.04], 5, skin);
+
+  const canW = 0.18, canH = 0.08;
+  const canZ0 = 0.28, canY0 = 0.88, canX0 = 0.28;
+  const tipFront = [canX0, canY0 + 0.08, canZ0 + 0.48];
+  const tipRear  = [canX0, canY0 - 0.08, canZ0 - 0.45];
+  const cTop    = [canX0, canY0 + canH, canZ0];
+  const cBot    = [canX0, canY0 - canH, canZ0];
+  const cRightU = [canX0 + canW, canY0 + canH * 0.4, canZ0];
+  const cRightD = [canX0 + canW, canY0 - canH * 0.4, canZ0];
+  const cLeftU  = [canX0 - canW * 0.4, canY0 + canH * 0.4, canZ0];
+  const cLeftD  = [canX0 - canW * 0.4, canY0 - canH * 0.4, canZ0];
+
+  b.addTri(tipFront, cTop, cRightU, red);
+  b.addTri(tipFront, cRightU, cRightD, red);
+  b.addTri(tipFront, cRightD, cBot, red);
+  b.addTri(tipFront, cBot, cLeftD, red);
+  b.addTri(tipFront, cLeftD, cLeftU, red);
+  b.addTri(tipFront, cLeftU, cTop, red);
+
+  b.addTri(tipRear, cRightU, cTop, red);
+  b.addTri(tipRear, cRightD, cRightU, red);
+  b.addTri(tipRear, cBot, cRightD, red);
+  b.addTri(tipRear, cLeftD, cBot, red);
+  b.addTri(tipRear, cLeftU, cLeftD, red);
+  b.addTri(tipRear, cTop, cLeftU, red);
+
+  // Poignée centrale de prise en main
+  b.addQuad(
+    [canX0 + 0.04, canY0 + 0.10, canZ0 + 0.08], [canX0 + 0.04, canY0 + 0.10, canZ0 - 0.08],
+    [canX0 + 0.04, canY0 + 0.03, canZ0 - 0.08], [canX0 + 0.04, canY0 + 0.03, canZ0 + 0.08], PP_PAL.white
+  );
+
+  return b.buildGeometry();
+}
+
+const lgMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+const lgMesh = new THREE.Mesh(createPolyperfectLifeguardGeo(), lgMat);
+lgMesh.scale.set(1.35, 1.35, 1.35);
+lgMesh.castShadow = true;
+const lgTorsoMesh = lgMesh; // Rétro-compatibilité
 const initLgY = getBeachElevation(230, 749);
-lgTorsoMesh.position.set(230, initLgY, 749);
-lgLimbLMesh.position.set(230, initLgY + 0.65, 749);
-lgLimbRMesh.position.set(230, initLgY + 0.65, 749);
-scene.add(lgTorsoMesh, lgLimbLMesh, lgLimbRMesh);
+lgMesh.position.set(230, initLgY, 749);
+scene.add(lgMesh);
 
 const lifeguardData = {
   xMin: 140, xMax: 410,
@@ -7461,16 +8025,19 @@ function updateWorld(dt) {
     }
   }
 
-  /* 3.2 Bouées gonflables, paddleboard et nageur bouée du lagon couplés à la houle */
+  /* 3.2 Personnages aquatiques Polyperfect (Nageurs en bouée, Surfeur, Paddle, Bouées) couplés à la houle */
   if (typeof lagoonFloats !== 'undefined') {
     lagoonFloats.forEach(f => {
       const gw = sampleGerstner(f.x, f.z, t);
+      const isSurf = (f.type === 'surfer');
       const isPaddle = (f.type === 'paddle');
-      const baseY = isPaddle ? 0.04 : 0.12;
+      const isRing = (f.type === 'swimring');
+      const baseY = isSurf ? 0.08 : (isPaddle ? 0.06 : (isRing ? 0.38 : 0.14));
       f.mesh.position.set(gw.x, gw.y + baseY, gw.z);
-      f.mesh.rotation.x = Math.atan2(gw.slopeZ, 1.0) * 0.45 + Math.sin(t * 1.4 + f.ph) * 0.06;
-      f.mesh.rotation.z = Math.atan2(gw.slopeX, 1.0) * 0.45 + Math.cos(t * 1.4 + f.ph) * 0.06;
-      f.mesh.rotation.y = Math.sin(t * 0.6 + f.ph) * 0.15;
+      const surfPitchRoll = isSurf ? 0.65 : 0.45;
+      f.mesh.rotation.x = Math.atan2(gw.slopeZ, 1.0) * surfPitchRoll + Math.sin(t * 1.4 + f.ph) * 0.06;
+      f.mesh.rotation.z = Math.atan2(gw.slopeX, 1.0) * surfPitchRoll + Math.cos(t * 1.4 + f.ph) * 0.06;
+      f.mesh.rotation.y = Math.sin(t * 0.6 + f.ph) * 0.15 + (isSurf ? 0.35 : 0);
     });
   }
 
@@ -7772,29 +8339,25 @@ function updateWorld(dt) {
   pLimbsR.instanceMatrix.needsUpdate = true;
   pHeads.instanceMatrix.needsUpdate = true;
 
-  /* Animation de la sauveteuse Minipoly en patrouille de course le long du rivage */
-  if (typeof lgTorsoMesh !== 'undefined') {
+  /* Animation de la sauveteuse Polyperfect en patrouille de course le long du rivage */
+  if (typeof lgMesh !== 'undefined' && typeof lifeguardData !== 'undefined') {
     const d = lifeguardData;
     d.x += dt * d.speed * d.dir;
     if (d.x > d.xMax) { d.x = d.xMax; d.dir = -1; }
     else if (d.x < d.xMin) { d.x = d.xMin; d.dir = 1; }
 
     const ry = (d.dir > 0) ? (Math.PI / 2) : (-Math.PI / 2);
-    const runPhase = t * 13.5;
-    const legSwing = Math.sin(runPhase) * 0.85;
-    const bounce = Math.abs(Math.sin(runPhase)) * 0.18;
+    const runPhase = t * 14.0;
+    const bounce = Math.abs(Math.sin(runPhase)) * 0.16;
+    const fwdLean = 0.28; // 16° d'inclinaison dynamique vers l'avant (Mixamo sprint)
+    const rollSway = Math.sin(runPhase) * 0.08;
+    const yawCounter = Math.cos(runPhase) * 0.05;
 
     const z = d.zShore + Math.sin(d.x * 0.02) * 2.5;
     const y = getBeachElevation(d.x, z) + bounce;
 
-    lgTorsoMesh.position.set(d.x, y, z);
-    lgTorsoMesh.rotation.set(0, ry, -d.dir * 0.18);
-
-    lgLimbLMesh.position.set(d.x, y + 0.65, z);
-    lgLimbLMesh.rotation.set(0, ry, -d.dir * legSwing);
-
-    lgLimbRMesh.position.set(d.x, y + 0.65, z);
-    lgLimbRMesh.rotation.set(0, ry, d.dir * legSwing);
+    lgMesh.position.set(d.x, y, z);
+    lgMesh.rotation.set(fwdLean, ry + yawCounter, -d.dir * rollSway);
   }
 
   volleyBalls.forEach((b, i) => {
