@@ -3142,9 +3142,18 @@ const PAL = {
   tikiThatch: 0xd8a45a, tikiWood: 0x8c6239,
   towels: [0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6, 0xec4899, 0xffffff],
   wetSand: 0xc68e42, wetSandDark: 0xaa702a, wetSandShine: 0xdfa450,
+  sunSandHot: 0xf6d365, sunSandDune: 0xe0ac69, sunSandWet: 0xb45309, sunSandDeep: 0x38bdf8,
   inflatableDonut: 0xf472b6, inflatableSprinkles: 0xfacc15, inflatableFlamingo: 0xf43f5e, inflatableBeak: 0xfbbf24,
   strawHat: 0xeab308, strawHatBand: 0xef4444, sunglasses: 0x18181b,
   swimwear: [0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6, 0xec4899, 0x06b6d4, 0x18181b, 0xffffff],
+  swimwearLifeguard: 0xff2222, torpedoBuoy: 0xe11d48,
+  lifeguardTowerBlue: 0x7dd3fc, lifeguardTowerStairs: 0x0284c7,
+  deckFabricStripes: [0xff3333, 0xffffff, 0xfacc15, 0x0284c7],
+  toteBag: 0x38bdf8, toteBagHandles: 0x1e293b,
+  flipFlops: [0xf59e0b, 0x0284c7, 0xec4899, 0x10b981],
+  swimZoneBuoyRed: 0xef4444, swimZoneBuoyWhite: 0xffffff, swimZoneRope: 0xf1f5f9,
+  lifeRingRed: 0xef4444, lifeRingWhite: 0xffffff,
+  hairBlonde: 0xf5d061, hairBrown: 0x4a3018, hairBlack: 0x18181b, hairRed: 0xc35831,
   skinDiverse: [0x543216, 0x7c4722, 0xaa6b3c, 0xc88958, 0xe2a87e, 0xf6ceb4],
   sandCastle: 0xeab358, sandCastleFlag: 0xef4444, sandBucket: 0xef4444, sandSpade: 0x3b82f6,
 
@@ -3514,7 +3523,20 @@ const SHORE_CITRONS = [[-392, 620], [-330, 640], [-280, 652], [-225, 668], [-170
 const SHORE_VATA = [[50, 702], [130, 708], [200, 712], [270, 715], [340, 716], [408, 712], [470, 706], [524, 698], [578, 688]];
 
 const BEACH_Y = 3.06;
-function beachReliefGeo(pts, backDist, frontDist, yBack, yFront) {
+function beachReliefGeo(origPts, backDist, frontDist, yBack, yFront) {
+  // 1. Ré-échantillonnage dense le long du tracé littoral (~7.5m par segment)
+  const pts = [];
+  for (let i = 0; i < origPts.length - 1; i++) {
+    const pA = origPts[i], pB = origPts[i + 1];
+    const segLen = Math.hypot(pB[0] - pA[0], pB[1] - pA[1]);
+    const steps = Math.max(3, Math.round(segLen / 7.5));
+    for (let s = 0; s < steps; s++) {
+      const u = s / steps;
+      pts.push([THREE.MathUtils.lerp(pA[0], pB[0], u), THREE.MathUtils.lerp(pA[1], pB[1], u)]);
+    }
+  }
+  pts.push(origPts[origPts.length - 1]);
+
   const N = pts.length;
   const vNorms = [];
   for (let i = 0; i < N; i++) {
@@ -3532,12 +3554,16 @@ function beachReliefGeo(pts, backDist, frontDist, yBack, yFront) {
     const ln = Math.hypot(nx, nz) || 1;
     vNorms.push([nx / ln, nz / ln]);
   }
-  const ROWS = 6;
+
+  // 2. Grille polygonale à 14 rangées pour facettage Minipoly riche
+  const ROWS = 14;
   const grid = [];
-  const cSand = new THREE.Color(PAL.sand);
-  const cDune = new THREE.Color(PAL.sandDark);
-  const cWet = new THREE.Color(PAL.wetSand);
+  const cSunHot  = new THREE.Color(PAL.sunSandHot);
+  const cSunDune = new THREE.Color(PAL.sunSandDune);
+  const cSand    = new THREE.Color(PAL.sand);
+  const cWet     = new THREE.Color(PAL.sunSandWet);
   const cWetDark = new THREE.Color(PAL.wetSandDark);
+  const cDeep    = new THREE.Color(PAL.sunSandDeep);
 
   for (let r = 0; r <= ROWS; r++) {
     const v = r / ROWS;
@@ -3546,28 +3572,41 @@ function beachReliefGeo(pts, backDist, frontDist, yBack, yFront) {
     for (let i = 0; i < N; i++) {
       const p = pts[i], n = vNorms[i];
       const px = p[0] + n[0] * dist, pz = p[1] + n[1] * dist;
-      const baseY = THREE.MathUtils.lerp(yBack, yFront, Math.pow(v, 1.15));
-      const duneNoise = (v < 0.75)
-        ? (0.22 * Math.sin(px * 0.05 + pz * 0.03) + 0.10 * Math.cos(px * 0.12 - pz * 0.08)) * (1.0 - v * 0.75)
-        : 0;
-      const y = Math.max(0.42, baseY + duneNoise);
+      const baseY = THREE.MathUtils.lerp(yBack, yFront, Math.pow(v, 1.12));
 
+      // Micro-relief ondulé de dunes et rides de sable stylisées
+      const duneNoise = (v < 0.82)
+        ? (0.28 * Math.sin(px * 0.07 + pz * 0.04) + 0.14 * Math.cos(px * 0.16 - pz * 0.10) + 0.08 * Math.sin(px * 0.32 + pz * 0.22)) * (1.0 - v * 0.82)
+        : 0;
+      const y = Math.max(0.38, baseY + duneNoise);
+
+      // Dégradé chromatique 4 teintes avec micro-variations par facette
       const col = new THREE.Color();
-      if (v < 0.40) {
-        const noise = Math.sin(px * 0.35 + pz * 0.4) * 0.03;
-        col.copy(cDune).lerp(cSand, (v / 0.40) + noise);
-      } else if (v < 0.72) {
-        const t2 = (v - 0.40) / 0.32;
-        col.copy(cSand).lerp(cWet, t2);
+      const facetJitter = (Math.sin(px * 1.8 + pz * 2.3) * 0.5 + 0.5) * 0.04;
+
+      if (v < 0.26) {
+        // 1. Haut de plage sec & chaud
+        col.copy(cSunHot).lerp(cSunDune, (v / 0.26) + facetJitter);
+      } else if (v < 0.65) {
+        // 2. Plage centrale dorée (zone de serviettes)
+        const uMid = (v - 0.26) / 0.39;
+        col.copy(cSunDune).lerp(cSand, uMid + facetJitter);
+      } else if (v < 0.86) {
+        // 3. Estran humide sombre & brillant
+        const uWet = (v - 0.65) / 0.21;
+        col.copy(cSand).lerp(cWet, uWet);
+        col.lerp(cWetDark, uWet * 0.45);
       } else {
-        const t3 = (v - 0.72) / 0.28;
-        col.copy(cWet).lerp(cWetDark, t3);
+        // 4. Fond marin translucide teinté par le lagon
+        const uSea = (v - 0.86) / 0.14;
+        col.copy(cWetDark).lerp(cDeep, uSea);
       }
       rowPts.push({ x: px, y, z: pz, col });
     }
     grid.push(rowPts);
   }
 
+  // 3. Construction des triangles non indexés pour un flat shading Minipoly net
   const pos = [], cols = [];
   for (let r = 0; r < ROWS; r++) {
     for (let i = 0; i < N - 1; i++) {
@@ -3591,8 +3630,8 @@ function beachReliefGeo(pts, backDist, frontDist, yBack, yFront) {
 }
 
 const sandParts = [
-  beachReliefGeo(SHORE_CITRONS, 32, 42, BEACH_Y, 0.48),
-  beachReliefGeo(SHORE_VATA, 36, 44, BEACH_Y, 0.48)
+  beachReliefGeo(SHORE_CITRONS, 32, 44, BEACH_Y, 0.40),
+  beachReliefGeo(SHORE_VATA, 36, 46, BEACH_Y, 0.40)
 ];
 
 /* Générateur d'îlot tropical facetté en 3D (Style Minipoly Référence Captures 3, 4 & 5) */
@@ -5142,44 +5181,87 @@ VOLLEY.forEach(([x, z, ry]) => {
 /* POSTE DE SECOURS / CABANE DE SAUVETAGE SUR PILOTIS (Anse Vata) */
 (() => {
   const vx = 220, vz = 696;
+  const platY = BEACH_Y + 3.8;
   /* 4 pilotis en bois inclinés */
-  L.push(segCyl(vx - 2.2, BEACH_Y, vz - 2.2, vx - 1.8, BEACH_Y + 3.8, vz - 1.8, 0.22, 0.18, 5, 0x8c6239));
-  L.push(segCyl(vx + 2.2, BEACH_Y, vz - 2.2, vx + 1.8, BEACH_Y + 3.8, vz - 1.8, 0.22, 0.18, 5, 0x8c6239));
-  L.push(segCyl(vx - 2.2, BEACH_Y, vz + 2.2, vx - 1.8, BEACH_Y + 3.8, vz + 1.8, 0.22, 0.18, 5, 0x8c6239));
-  L.push(segCyl(vx + 2.2, BEACH_Y, vz + 2.2, vx + 1.8, BEACH_Y + 3.8, vz + 1.8, 0.22, 0.18, 5, 0x8c6239));
+  L.push(segCyl(vx - 2.0, BEACH_Y, vz - 2.0, vx - 1.7, platY, vz - 1.7, 0.18, 0.15, 5, PAL.deckWood));
+  L.push(segCyl(vx + 2.0, BEACH_Y, vz - 2.0, vx + 1.7, platY, vz - 1.7, 0.18, 0.15, 5, PAL.deckWood));
+  L.push(segCyl(vx - 2.0, BEACH_Y, vz + 2.0, vx - 1.7, platY, vz + 1.7, 0.18, 0.15, 5, PAL.deckWood));
+  L.push(segCyl(vx + 2.0, BEACH_Y, vz + 2.0, vx + 1.7, platY, vz + 1.7, 0.18, 0.15, 5, PAL.deckWood));
+  /* Entretoises en croix */
+  L.push(segCyl(vx - 1.9, BEACH_Y + 1.0, vz - 1.9, vx + 1.9, platY - 0.5, vz - 1.9, 0.07, 0.07, 4, PAL.deckWood));
+  L.push(segCyl(vx + 1.9, BEACH_Y + 1.0, vz - 1.9, vx - 1.9, platY - 0.5, vz - 1.9, 0.07, 0.07, 4, PAL.deckWood));
   /* Plateforme en bois et garde-corps */
-  L.push(bx(5.2, 0.25, 5.2, 0xd69a60, vx, BEACH_Y + 3.9, vz));
-  L.push(bx(5.2, 0.9, 0.12, 0xffffff, vx, BEACH_Y + 4.45, vz - 2.5));
-  L.push(bx(5.2, 0.9, 0.12, 0xffffff, vx, BEACH_Y + 4.45, vz + 2.5));
-  /* Cabane d'observation */
-  L.push(bx(3.8, 2.6, 3.8, 0xffffff, vx, BEACH_Y + 5.3, vz));
-  L.push(bx(3.4, 0.8, 0.1, 0x1e75bb, vx, BEACH_Y + 5.5, vz + 1.95)); // baie vitrée vigie
-  /* Toit en auvent turquoise vif */
-  L.push(bx(4.6, 0.28, 4.6, 0x06b6d4, vx, BEACH_Y + 6.7, vz));
-  /* Échelle d'accès */
-  L.push(segCyl(vx, BEACH_Y, vz - 2.8, vx, BEACH_Y + 3.9, vz - 2.4, 0.14, 0.14, 4, 0x8c6239));
-  /* Bouée de sauvetage rouge et blanche fixée sur la façade */
-  const buoy = new THREE.TorusGeometry(0.48, 0.14, 6, 12);
-  buoy.translate(vx - 1.2, BEACH_Y + 5.3, vz + 1.96);
-  L.push(prep(buoy, 0xef4444));
+  L.push(bx(5.4, 0.22, 5.4, 0xe2e8f0, vx, platY + 0.11, vz));
+  L.push(bx(5.4, 0.95, 0.10, 0xffffff, vx, platY + 0.58, vz - 2.65));
+  L.push(bx(5.4, 0.95, 0.10, 0xffffff, vx, platY + 0.58, vz + 2.65));
+  L.push(bx(0.10, 0.95, 5.4, 0xffffff, vx - 2.65, platY + 0.58, vz));
+  L.push(bx(0.10, 0.95, 3.2, 0xffffff, vx + 2.65, platY + 0.58, vz - 1.1));
+  /* Escalier incliné avec marches et rampes */
+  for (let st = 0; st < 9; st++) {
+    const u = st / 9;
+    const sx = vx + 2.7 + u * 4.2;
+    const sy = platY - u * (platY - BEACH_Y);
+    L.push(bx(1.2, 0.14, 0.45, PAL.lifeguardTowerBlue, sx, sy, vz + 1.8));
+  }
+  L.push(segCyl(vx + 2.7, platY + 0.8, vz + 2.3, vx + 6.9, BEACH_Y + 0.8, vz + 2.3, 0.07, 0.07, 4, 0xffffff));
+  L.push(segCyl(vx + 2.7, platY + 0.8, vz + 1.3, vx + 6.9, BEACH_Y + 0.8, vz + 1.3, 0.07, 0.07, 4, 0xffffff));
+  /* Cabine en bois bleu ciel */
+  L.push(bx(3.6, 2.6, 3.6, PAL.lifeguardTowerBlue, vx - 0.5, platY + 1.4, vz - 0.4));
+  /* Baie vitrée panoramique d'observation */
+  L.push(bx(3.2, 1.1, 0.12, 0x0f172a, vx - 0.5, platY + 1.6, vz + 1.42));
+  L.push(bx(3.2, 0.8, 0.14, 0x38bdf8, vx - 0.5, platY + 1.6, vz + 1.42));
+  /* Toit débordant avec casquette pare-soleil */
+  const roof = new THREE.BoxGeometry(4.4, 0.28, 4.4);
+  roof.rotateX(0.08); roof.translate(vx - 0.5, platY + 2.85, vz - 0.4);
+  L.push(prep(roof, 0x0284c7));
+  /* Bouée de sauvetage couronne rouge et blanche sur le garde-corps */
+  const buoy = new THREE.TorusGeometry(0.55, 0.15, 8, 16);
+  buoy.translate(vx + 2.68, platY + 0.6, vz - 0.6);
+  L.push(prep(buoy, PAL.lifeRingRed));
+  const buoyStripe = new THREE.TorusGeometry(0.56, 0.16, 4, 8);
+  buoyStripe.translate(vx + 2.68, platY + 0.6, vz - 0.6);
+  L.push(prep(buoyStripe, PAL.lifeRingWhite));
 })();
+
+/* Cabines de plage traditionnelles rayées bleu et blanc */
+[[-215, 668, 0.15], [290, 715, -0.10]].forEach(([cx, cz, ry]) => {
+  const cy = BEACH_Y;
+  L.push(bx(2.2, 3.2, 2.2, 0xffffff, cx, cy + 1.6, cz, ry));
+  [-0.8, -0.25, 0.3, 0.85].forEach(ox => {
+    const rx = cx + Math.cos(ry) * ox, rz = cz + Math.sin(ry) * ox;
+    L.push(bx(0.24, 3.22, 2.22, 0x1e3a8a, rx, cy + 1.6, rz, ry));
+  });
+  const cabRoof = new THREE.ConeGeometry(1.8, 1.2, 4);
+  cabRoof.rotateY(Math.PI / 4 + ry); cabRoof.translate(cx, cy + 3.8, cz);
+  L.push(prep(cabRoof, 0x1e3a8a));
+});
+
+/* Châteaux de sable détaillés construits par les enfants */
+[[188, 726], [324, 730], [-206, 682]].forEach(([cx, cz]) => {
+  const cy = BEACH_Y - 0.45;
+  L.push(bx(1.4, 0.55, 1.4, PAL.sandCastle, cx, cy + 0.28, cz));
+  [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].forEach(([ox, oz]) => {
+    L.push(cylG(0.28, 0.28, 0.85, 6, PAL.sandCastle, cx + ox, cy + 0.42, cz + oz));
+    L.push(coneG(0.32, 0.35, 6, PAL.sandCastle, cx + ox, cy + 0.95, cz + oz));
+  });
+  L.push(cylG(0.03, 0.03, 0.75, 4, 0xd8b584, cx, cy + 0.85, cz));
+  L.push(bx(0.28, 0.18, 0.02, 0xef4444, cx + 0.14, cy + 1.15, cz));
+  L.push(cylG(0.22, 0.16, 0.35, 6, 0xef4444, cx + 1.3, cy + 0.18, cz + 0.4));
+  L.push(bx(0.12, 0.52, 0.08, 0x0284c7, cx + 1.5, cy + 0.22, cz - 0.3, 0.4));
+});
 
 /* PAILLOTE / TIKI BAR DE PLAGE (Baie des Citrons) */
 (() => {
   const tx = -220, tz = 660;
-  /* Poteaux bambou/bois */
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     L.push(cylG(0.18, 0.22, 3.2, 5, PAL.tikiWood, tx + Math.cos(a) * 3.2, BEACH_Y + 1.6, tz + Math.sin(a) * 3.2));
   }
-  /* Comptoir en bois en U */
   L.push(bx(4.4, 1.1, 0.6, 0xd89c62, tx, BEACH_Y + 0.55, tz - 1.8));
   L.push(bx(0.6, 1.1, 3.6, 0xd89c62, tx - 1.9, BEACH_Y + 0.55, tz));
   L.push(bx(0.6, 1.1, 3.6, 0xd89c62, tx + 1.9, BEACH_Y + 0.55, tz));
-  /* Toiture conique en chaume stylisée */
   L.push(coneG(4.8, 2.4, 8, PAL.tikiThatch, tx, BEACH_Y + 4.2, tz));
   L.push(coneG(2.2, 1.4, 8, 0xc48e42, tx, BEACH_Y + 5.2, tz));
-  /* Tabourets en rondins devant le comptoir */
   [-1.2, 0, 1.2].forEach(ox => {
     L.push(cylG(0.35, 0.35, 0.75, 6, 0x8c6239, tx + ox, BEACH_Y + 0.38, tz - 2.7));
   });
@@ -5193,45 +5275,86 @@ VOLLEY.forEach(([x, z, ry]) => {
   }
 });
 
-/* Parasols Minipoly bleu roi et or sur le sable */
-for (let k = 0; k < 46; k++) {
+/* Parasols Minipoly à secteurs alternés rayés (Rouge/Blanc et Jaune/Blanc) */
+for (let k = 0; k < 44; k++) {
   const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const dz = rr(6, 24);
+  const dz = rr(8, 26);
   const x = p0[0] + rr(-36, 36), z = p0[1] + dz;
   if (onRoad(x, z, 7)) continue;
-  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
-  if (rnd() < 0.75) {
-    const isBlue = rnd() < 0.78;
-    const pCol = isBlue ? PAL.parasolBlue : PAL.parasolYellow;
-    L.push(cylG(0.14, 0.14, 2.6, 5, PAL.parasolPole, x, yBase + 1.3, z));
-    L.push(coneG(2.5, 0.98, 8, pCol, x, yBase + 2.65, z));
-    L.push(cylG(2.55, 2.55, 0.14, 8, PAL.parasolWhite, x, yBase + 2.18, z));
-    /* Petites bandes alternées blanches sur la toile */
-    L.push(coneG(1.2, 0.99, 4, PAL.parasolWhite, x, yBase + 2.66, z));
-  } else {
-    L.push(bx(2.4, 0.08, 1.3, pick([0x0ea5e9, 0xef4444, 0xf59e0b, 0x10b981]), x, yBase + 0.05, z, rnd() * 3));
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.45);
+  const isRed = (k % 2 === 0);
+  const cPrimary = isRed ? 0xef4444 : 0xfacc15;
+  L.push(cylG(0.12, 0.12, 2.8, 5, PAL.parasolPole, x, yBase + 1.4, z));
+  const canopyGeo = new THREE.ConeGeometry(2.6, 1.1, 8).toNonIndexed();
+  canopyGeo.translate(x, yBase + 2.8, z);
+  const cArr = new Float32Array(canopyGeo.attributes.position.count * 3);
+  const c1 = new THREE.Color(cPrimary), c2 = new THREE.Color(0xffffff);
+  for (let tri = 0; tri < canopyGeo.attributes.position.count / 3; tri++) {
+    const useColor = (tri % 2 === 0) ? c1 : c2;
+    for (let vi = 0; vi < 3; vi++) {
+      cArr[(tri * 3 + vi) * 3]     = useColor.r;
+      cArr[(tri * 3 + vi) * 3 + 1] = useColor.g;
+      cArr[(tri * 3 + vi) * 3 + 2] = useColor.b;
+    }
   }
+  canopyGeo.setAttribute('color', new THREE.BufferAttribute(cArr, 3));
+  L.push(canopyGeo);
+  L.push(cylG(2.62, 2.62, 0.16, 8, 0xffffff, x, yBase + 2.28, z));
+  L.push(coneG(0.2, 0.35, 6, cPrimary, x, yBase + 3.45, z));
 }
 
-/* Transats rayés en bois sur le sable */
-for (let k = 0; k < 34; k++) {
+/* Transats pliants en X en bois avec toile tendue rayée et accessoires */
+for (let k = 0; k < 36; k++) {
   const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  const dz = rr(8, 22);
-  const x = p0[0] + rr(-36, 36), z = p0[1] + dz, a = rr(-0.5, 0.5);
+  const dz = rr(9, 24);
+  const x = p0[0] + rr(-36, 36), z = p0[1] + dz, a = rr(-0.45, 0.45);
   if (onRoad(x, z, 7)) continue;
-  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.58);
-  L.push(bx(1.5, 0.14, 2.2, PAL.deckWood, x, yBase + 0.45, z, a));
-  L.push(bx(1.3, 0.06, 2.0, PAL.deckFabric, x, yBase + 0.52, z, a));
-  const back = new THREE.BoxGeometry(1.5, 0.14, 1.6);
-  back.translate(0, 0, -0.8);
-  back.rotateX(-0.95);
-  back.rotateY(a);
-  back.translate(x - Math.sin(a) * 1.1, yBase + 0.54, z - Math.cos(a) * 1.1);
-  L.push(prep(back, PAL.deckFabric));
-  L.push(bx(1.3, 0.4, 0.14, PAL.deckWood, x, yBase + 0.24, z, a));
+  const yBase = BEACH_Y - (dz / 44) * (BEACH_Y - 0.45);
+  L.push(segCyl(x - 0.65, yBase, z - 0.8, x + 0.65, yBase + 1.1, z + 0.7, 0.06, 0.06, 4, PAL.deckWood));
+  L.push(segCyl(x + 0.65, yBase, z - 0.8, x - 0.65, yBase + 1.1, z + 0.7, 0.06, 0.06, 4, PAL.deckWood));
+  L.push(segCyl(x - 0.65, yBase + 1.0, z - 0.6, x - 0.65, yBase, z + 0.9, 0.06, 0.06, 4, PAL.deckWood));
+  L.push(segCyl(x + 0.65, yBase + 1.0, z - 0.6, x + 0.65, yBase, z + 0.9, 0.06, 0.06, 4, PAL.deckWood));
+  const fabric = new THREE.BoxGeometry(1.24, 0.05, 2.2);
+  fabric.rotateX(-0.62); fabric.rotateY(a);
+  fabric.translate(x, yBase + 0.58, z);
+  L.push(prep(fabric, (k % 2 === 0) ? 0xef4444 : 0x0284c7));
+  const stripe = new THREE.BoxGeometry(0.40, 0.06, 2.22);
+  stripe.rotateX(-0.62); stripe.rotateY(a);
+  stripe.translate(x, yBase + 0.59, z);
+  L.push(prep(stripe, 0xffffff));
+
+  /* Sac cabas posé à côté */
+  const bagX = x + Math.cos(a) * 1.35, bagZ = z - Math.sin(a) * 1.35;
+  L.push(bx(0.65, 0.55, 0.32, PAL.toteBag, bagX, yBase + 0.28, bagZ, a));
+  L.push(bx(0.66, 0.16, 0.33, 0xffffff, bagX, yBase + 0.38, bagZ, a));
+  L.push(segCyl(bagX - 0.18, yBase + 0.55, bagZ, bagX + 0.18, yBase + 0.75, bagZ, 0.03, 0.03, 3, PAL.toteBagHandles));
+
+  /* Paire de tongs posée sur le sable */
+  const tX = x - Math.cos(a) * 1.25, tZ = z + Math.sin(a) * 1.25;
+  L.push(bx(0.18, 0.03, 0.38, 0xf59e0b, tX - 0.12, yBase + 0.02, tZ, a + 0.1));
+  L.push(bx(0.18, 0.03, 0.38, 0xf59e0b, tX + 0.12, yBase + 0.02, tZ, a - 0.1));
 }
+
+/* Cordon de bouées de baignade délimitant le lagon sécurisé */
+(() => {
+  const N_BUOYS = 26;
+  for (let i = 0; i < N_BUOYS; i++) {
+    const u = i / (N_BUOYS - 1);
+    const bx = THREE.MathUtils.lerp(80, 500, u);
+    const bz = THREE.MathUtils.lerp(782, 788, Math.sin(u * Math.PI)) + 8;
+    const col = (i % 2 === 0) ? PAL.swimZoneBuoyRed : PAL.swimZoneBuoyWhite;
+    const g = new THREE.SphereGeometry(0.34, 6, 6);
+    g.translate(bx, 0.15, bz);
+    L.push(prep(g, col));
+    if (i < N_BUOYS - 1) {
+      const nextBx = THREE.MathUtils.lerp(80, 500, (i + 1) / (N_BUOYS - 1));
+      const nextBz = THREE.MathUtils.lerp(782, 788, Math.sin(((i + 1) / (N_BUOYS - 1)) * Math.PI)) + 8;
+      L.push(segCyl(bx, 0.12, bz, nextBx, 0.12, nextBz, 0.03, 0.03, 3, PAL.swimZoneRope));
+    }
+  }
+})();
 
 /* Rochers côtiers */
 for (let k = 0; k < 36; k++) {
@@ -5542,17 +5665,33 @@ tlYellowMesh.instanceMatrix.needsUpdate = true;
 tlGreenMesh.instanceMatrix.needsUpdate = true;
 
 /* ---------------------------------------------------------------------
-   7.10 BOUÉES GONFLABLES DU LAGON (DONUTS & FLAMANTS ROSES)
+   7.10 BOUÉES GONFLABLES DU LAGON (DONUTS & FLAMANTS ROSES) AVEC BAIGNEURS & PADDLE
    ------------------------------------------------------------------ */
 const lagoonFloats = [];
+
+/* Bouée Donut habitée */
 const donutFloatGeo = (() => {
+  const parts = [];
   const torus = new THREE.TorusGeometry(1.35, 0.52, 8, 16);
   torus.rotateX(Math.PI / 2);
+  parts.push(prep(torus, 0xf59e0b));
   const icing = new THREE.TorusGeometry(1.36, 0.42, 8, 16);
   icing.rotateX(Math.PI / 2); icing.translate(0, 0.12, 0);
-  return mergeGeometries([prep(torus, 0xf59e0b), prep(icing, PAL.inflatableDonut)], false);
+  parts.push(prep(icing, PAL.inflatableDonut));
+  // Baigneur assis au centre
+  parts.push(bx(0.55, 0.62, 0.35, 0xef4444, 0, 0.32, 0)); // maillot rouge
+  const head = new THREE.SphereGeometry(0.24, 6, 5); head.translate(0, 0.88, 0);
+  parts.push(prep(head, 0xf4cbb2));
+  const hair = new THREE.DodecahedronGeometry(0.24, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 0.98, -0.04);
+  parts.push(prep(hair, 0x4a3018));
+  parts.push(bx(0.36, 0.10, 0.12, 0x18181b, 0, 0.92, 0.18)); // lunettes
+  // Bras reposant sur la bouée
+  parts.push(segCyl(-0.25, 0.48, 0, -0.92, 0.32, 0.35, 0.08, 0.07, 4, 0xf4cbb2));
+  parts.push(segCyl(0.25, 0.48, 0, 0.92, 0.32, 0.35, 0.08, 0.07, 4, 0xf4cbb2));
+  return mergeGeometries(parts, false);
 })();
 
+/* Bouée Flamant Rose habitée */
 const flamingoFloatGeo = (() => {
   const parts = [];
   const torus = new THREE.TorusGeometry(1.4, 0.52, 8, 16);
@@ -5560,29 +5699,91 @@ const flamingoFloatGeo = (() => {
   parts.push(prep(torus, PAL.inflatableFlamingo));
   // Cou gracieux courbé
   parts.push(prep(segCyl(0, 0.3, 1.1, 0, 1.6, 1.55, 0.24, 0.16, 6, PAL.inflatableFlamingo)));
-  // Tête et bec noir et rose
   parts.push(bx(0.32, 0.36, 0.55, PAL.inflatableFlamingo, 0, 1.65, 1.75));
   parts.push(coneG(0.18, 0.52, 4, 0x18181b, 0, 1.58, 2.12, -Math.PI / 2));
-  // Petite queue à l'arrière
   parts.push(coneG(0.24, 0.65, 4, PAL.inflatableFlamingo, 0, 0.5, -1.35, Math.PI / 3));
+  // Baigneur assis tenant le cou
+  parts.push(bx(0.55, 0.62, 0.35, 0x06b6d4, 0, 0.32, -0.22)); // maillot turquoise
+  const head = new THREE.SphereGeometry(0.24, 6, 5); head.translate(0, 0.88, -0.22);
+  parts.push(prep(head, 0xe0a67e));
+  const bun = new THREE.SphereGeometry(0.14, 6, 6); bun.translate(0, 1.04, -0.32);
+  parts.push(prep(bun, 0xf5d061)); // chignon blond
+  parts.push(bx(0.36, 0.10, 0.12, 0x18181b, 0, 0.92, -0.04));
+  parts.push(segCyl(-0.25, 0.48, -0.15, -0.18, 0.65, 0.75, 0.08, 0.07, 4, 0xe0a67e));
+  parts.push(segCyl(0.25, 0.48, -0.15, 0.18, 0.65, 0.75, 0.08, 0.07, 4, 0xe0a67e));
   return mergeGeometries(parts, false);
 })();
 
+/* Paddleboarder / Surfeur Minipoly sur l'eau */
+const paddleboardGeo = (() => {
+  const parts = [];
+  // Planche effilée moderne
+  parts.push(bx(0.85, 0.12, 3.4, 0xf8fafc, 0, 0.06, 0));
+  parts.push(bx(0.22, 0.13, 3.42, 0xef4444, 0, 0.06, 0)); // bande racing rouge
+  parts.push(bx(0.65, 0.14, 1.8, 0xf59e0b, 0, 0.07, -0.2)); // pad en mousse
+  // Nez relevé
+  const nose = new THREE.ConeGeometry(0.42, 0.75, 4);
+  nose.rotateX(Math.PI / 2); nose.scale(1, 0.25, 1); nose.translate(0, 0.08, 1.85);
+  parts.push(prep(nose, 0xf8fafc));
+  // Surfeur assis / à genoux
+  parts.push(bx(0.52, 0.58, 0.32, 0x0284c7, 0, 0.48, -0.15)); // short bleu
+  const head = new THREE.SphereGeometry(0.22, 6, 5); head.translate(0, 0.96, -0.15);
+  parts.push(prep(head, 0xc88958));
+  const hair = new THREE.DodecahedronGeometry(0.23, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 1.04, -0.18);
+  parts.push(prep(hair, 0x18181b));
+  // Pagaie de paddle en travers
+  parts.push(segCyl(-0.95, 0.55, 0.4, 0.95, 0.35, -0.4, 0.035, 0.035, 4, 0x18181b));
+  parts.push(bx(0.26, 0.52, 0.04, 0xef4444, 0.95, 0.25, -0.4, 0.4));
+  return mergeGeometries(parts, false);
+})();
+
+/* Nageur avec bouée couronne de sauvetage saluant hors de l'eau */
+const swimmerRingGeo = (() => {
+  const parts = [];
+  // Bouée couronne rayée rouge et blanc
+  const torus = new THREE.TorusGeometry(0.68, 0.20, 8, 16);
+  torus.rotateX(Math.PI / 2);
+  parts.push(prep(torus, PAL.lifeRingRed));
+  const stripe = new THREE.TorusGeometry(0.69, 0.21, 4, 8);
+  stripe.rotateX(Math.PI / 2);
+  parts.push(prep(stripe, PAL.lifeRingWhite));
+  // Buste immergé
+  parts.push(bx(0.48, 0.52, 0.28, 0xef4444, 0, 0.22, 0));
+  const head = new THREE.SphereGeometry(0.22, 6, 5); head.translate(0, 0.68, 0);
+  parts.push(prep(head, 0xe2a87e));
+  const hair = new THREE.DodecahedronGeometry(0.23, 0); hair.scale(1.05, 0.65, 1.05); hair.translate(0, 0.76, -0.04);
+  parts.push(prep(hair, 0x4a3018));
+  // Bras gauche reposant sur la bouée
+  parts.push(segCyl(-0.24, 0.32, 0, -0.62, 0.18, 0.22, 0.07, 0.07, 4, 0xe2a87e));
+  // Bras droit levé saluant la plage
+  parts.push(segCyl(0.24, 0.32, 0, 0.45, 1.05, 0.12, 0.07, 0.06, 4, 0xe2a87e));
+  return mergeGeometries(parts, false);
+})();
+
+// Positions strictement DANS L'EAU DU LAGON (au large de la plage)
 const FLOAT_CONFIGS = [
-  { type: 'donut',    x: 140,  z: 735, ph: 0.0 },
-  { type: 'flamingo', x: 260,  z: 742, ph: 1.4 },
-  { type: 'donut',    x: 390,  z: 738, ph: 2.8 },
-  { type: 'flamingo', x: -180, z: 715, ph: 4.2 },
-  { type: 'donut',    x: -280, z: 685, ph: 5.3 }
+  { type: 'flamingo', x: 245,  z: 774, ph: 1.4 },
+  { type: 'donut',    x: 155,  z: 766, ph: 0.0 },
+  { type: 'paddle',   x: 295,  z: 780, ph: 2.1 },
+  { type: 'swimring', x: 205,  z: 762, ph: 3.5 },
+  { type: 'flamingo', x: 370,  z: 775, ph: 2.8 },
+  { type: 'donut',    x: -175, z: 735, ph: 4.2 },
+  { type: 'flamingo', x: -285, z: 712, ph: 5.3 },
+  { type: 'swimring', x: -230, z: 724, ph: 0.8 }
 ];
 
 const floatMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 FLOAT_CONFIGS.forEach(fc => {
-  const geo = fc.type === 'donut' ? donutFloatGeo : flamingoFloatGeo;
+  let geo;
+  if (fc.type === 'flamingo') geo = flamingoFloatGeo;
+  else if (fc.type === 'donut') geo = donutFloatGeo;
+  else if (fc.type === 'paddle') geo = paddleboardGeo;
+  else geo = swimmerRingGeo;
+
   const m = new THREE.Mesh(geo, floatMat);
-  m.position.set(fc.x, 0.45, fc.z);
+  m.position.set(fc.x, 0.08, fc.z);
   scene.add(m);
-  lagoonFloats.push({ mesh: m, x: fc.x, z: fc.z, ph: fc.ph });
+  lagoonFloats.push({ mesh: m, x: fc.x, z: fc.z, ph: fc.ph, type: fc.type });
 });
 
 
@@ -6567,12 +6768,100 @@ if (towelGeos.length > 0) {
   }
 });
 
-/* 5. Nageurs barbotant dans l'eau cristalline du lagon */
+/* 5. Nageurs barbotant dans l'eau cristalline du lagon (strictement au large du rivage) */
 for (let k = 0; k < 22; k++) {
-  const b = rnd() < 0.6 ? SHORE_VATA : SHORE_CITRONS;
+  const b = rnd() < 0.65 ? SHORE_VATA : SHORE_CITRONS;
   const p0 = b[(rnd() * b.length) | 0];
-  addPerson('swimmer', { x: p0[0] + rr(-28, 28), z: p0[1] + rr(16, 42), ph: rnd() * 6.28 });
+  const isVata = (b === SHORE_VATA);
+  const dz = isVata ? rr(54, 88) : rr(50, 78);
+  const sx = p0[0] + rr(-28, 28);
+  const sz = p0[1] + dz;
+  const isWaving = (k % 3 === 0);
+  addPerson('swimmer', { x: sx, z: sz, ph: rnd() * 6.28, isWaving });
 }
+
+/* 5.1 Sauveteuse Minipoly en patrouille de course le long du rivage (Conforme Référence) */
+const lgSkin = 0xf6ceb4;
+const lgRed = PAL.swimwearLifeguard; // 0xff2222
+const lgBlonde = PAL.hairBlonde;     // 0xf5d061
+
+const lgTorsoGeo = (() => {
+  const parts = [];
+  // Torse maillot de bain une pièce rouge vif
+  parts.push(bx(0.50, 0.65, 0.30, lgRed, 0, 1.15, 0));
+  // Décolleté & bretelles
+  parts.push(bx(0.42, 0.12, 0.31, lgRed, 0, 1.48, 0));
+  // Échancrure maillot
+  parts.push(bx(0.48, 0.22, 0.28, lgRed, 0, 0.82, 0));
+  // Cou et décolleté peau
+  parts.push(cylG(0.12, 0.14, 0.22, 6, lgSkin, 0, 1.54, 0));
+  // Tête facettée
+  const head = new THREE.SphereGeometry(0.22, 6, 5);
+  head.translate(0, 1.72, 0);
+  parts.push(prep(head, lgSkin));
+  // Chevelure blonde
+  const hair = new THREE.DodecahedronGeometry(0.23, 0);
+  hair.scale(1.05, 0.70, 1.05); hair.translate(0, 1.80, -0.04);
+  parts.push(prep(hair, lgBlonde));
+  // Chignon blond haut
+  const bun = new THREE.SphereGeometry(0.14, 6, 6);
+  bun.translate(0, 1.95, -0.15);
+  parts.push(prep(bun, lgBlonde));
+  // Élastique rouge
+  const band = new THREE.TorusGeometry(0.09, 0.03, 5, 10);
+  band.translate(0, 1.88, -0.13);
+  parts.push(prep(band, lgRed));
+  // Lunettes de soleil sportives
+  parts.push(bx(0.34, 0.08, 0.10, 0x18181b, 0, 1.74, 0.18));
+  // Bouée tube rouge (torpedo buoy) tenue sous le bras droit
+  const can = new THREE.CylinderGeometry(0.12, 0.12, 0.88, 8);
+  can.rotateZ(Math.PI / 2); can.translate(0.38, 1.18, 0.08);
+  parts.push(prep(can, PAL.torpedoBuoy));
+  const tip1 = new THREE.ConeGeometry(0.12, 0.24, 8);
+  tip1.rotateZ(-Math.PI / 2); tip1.translate(0.88, 1.18, 0.08);
+  parts.push(prep(tip1, PAL.torpedoBuoy));
+  const tip2 = new THREE.ConeGeometry(0.12, 0.24, 8);
+  tip2.rotateZ(Math.PI / 2); tip2.translate(-0.12, 1.18, 0.08);
+  parts.push(prep(tip2, PAL.torpedoBuoy));
+  // Sangle blanche en diagonale sur le buste
+  parts.push(segCyl(-0.18, 1.48, 0.16, 0.22, 0.95, -0.16, 0.022, 0.022, 3, 0xffffff));
+  return mergeGeometries(parts, false);
+})();
+
+const lgLimbLGeo = (() => mergeGeometries([
+  prep(new THREE.BoxGeometry(0.16, 0.72, 0.18).translate(-0.15, -0.36, 0), lgSkin),
+  prep(new THREE.BoxGeometry(0.16, 0.08, 0.24).translate(-0.15, -0.74, 0.04), 0xef4444),
+  prep(new THREE.BoxGeometry(0.12, 0.58, 0.12).translate(-0.34, 0.32, 0), lgSkin)
+], false))();
+
+const lgLimbRGeo = (() => mergeGeometries([
+  prep(new THREE.BoxGeometry(0.16, 0.72, 0.18).translate(0.15, -0.36, 0), lgSkin),
+  prep(new THREE.BoxGeometry(0.16, 0.08, 0.24).translate(0.15, -0.74, 0.04), 0xef4444),
+  prep(new THREE.BoxGeometry(0.12, 0.58, 0.12).translate(0.34, 0.32, 0), lgSkin)
+], false))();
+
+const lgMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+const lgTorsoMesh = new THREE.Mesh(lgTorsoGeo, lgMat);
+const lgLimbLMesh = new THREE.Mesh(lgLimbLGeo, lgMat);
+const lgLimbRMesh = new THREE.Mesh(lgLimbRGeo, lgMat);
+[lgTorsoMesh, lgLimbLMesh, lgLimbRMesh].forEach(m => {
+  m.scale.set(1.35, 1.35, 1.35);
+  m.castShadow = true;
+});
+const initLgY = getBeachElevation(230, 749);
+lgTorsoMesh.position.set(230, initLgY, 749);
+lgLimbLMesh.position.set(230, initLgY + 0.65, 749);
+lgLimbRMesh.position.set(230, initLgY + 0.65, 749);
+scene.add(lgTorsoMesh, lgLimbLMesh, lgLimbRMesh);
+
+const lifeguardData = {
+  xMin: 140, xMax: 410,
+  zShore: 749,
+  speed: 5.4,
+  dir: 1,
+  x: 230
+};
+
 
 /* 6. Joueurs de beach-volley */
 VOLLEY.forEach(([vx, vz, vry]) => {
@@ -6865,7 +7154,7 @@ const VIEWS = {
   place:      { p: [-50, 85, -180],  t: [-130, 8, -285] },
   fontaine:   { p: [-130, 22, -235], t: [-130, 6, -285] },
   avenue:     { p: [-130, 16, -135], t: [-130, 12, -285] },
-  plage:      { p: [210, 22, 760],   t: [340, 8, 705] },
+  plage:      { p: [205, 18, 708],   t: [265, 2, 765] },
   large:      { p: [760, 900, 2150], t: [30, 0, 160] },
   port:       { p: [-810, 48, 145],  t: [-705, 16, 255] },
   hippodrome: { p: [150, 145, 790],  t: [140, 0, 470] },
@@ -7172,12 +7461,16 @@ function updateWorld(dt) {
     }
   }
 
-  /* 3.2 Bouées gonflables du lagon (Donuts & Flamants) */
+  /* 3.2 Bouées gonflables, paddleboard et nageur bouée du lagon couplés à la houle */
   if (typeof lagoonFloats !== 'undefined') {
     lagoonFloats.forEach(f => {
-      f.mesh.position.y = 0.40 + Math.sin(t * 2.2 + f.ph) * 0.14;
-      f.mesh.rotation.x = Math.sin(t * 1.6 + f.ph) * 0.08;
-      f.mesh.rotation.z = Math.cos(t * 1.6 + f.ph) * 0.08;
+      const gw = sampleGerstner(f.x, f.z, t);
+      const isPaddle = (f.type === 'paddle');
+      const baseY = isPaddle ? 0.04 : 0.12;
+      f.mesh.position.set(gw.x, gw.y + baseY, gw.z);
+      f.mesh.rotation.x = Math.atan2(gw.slopeZ, 1.0) * 0.45 + Math.sin(t * 1.4 + f.ph) * 0.06;
+      f.mesh.rotation.z = Math.atan2(gw.slopeX, 1.0) * 0.45 + Math.cos(t * 1.4 + f.ph) * 0.06;
+      f.mesh.rotation.y = Math.sin(t * 0.6 + f.ph) * 0.15;
     });
   }
 
@@ -7422,12 +7715,29 @@ function updateWorld(dt) {
       setFull(pLimbsR, p.idx, _out[0], 3.06 + bounce + 0.65 * PS, _out[1], -armLegRot, _out[2], 0);
     } else if (p.kind === 'swimmer') {
       const d = p.data;
-      const y = 0.22 + Math.sin(t * 2.4 + d.ph) * 0.14;
-      const stroke = Math.sin(t * 4.8 + d.ph) * 0.65;
-      setFull(pBodies, p.idx, d.x, y, d.z, 0.45, d.ph, Math.sin(t * 3.5 + d.ph) * 0.15);
-      setFull(pHeads, p.idx, d.x, y + 0.08, d.z, 0.45, d.ph, 0);
-      setFull(pLimbsL, p.idx, d.x, y, d.z, stroke, d.ph, 0);
-      setFull(pLimbsR, p.idx, d.x, y, d.z, -stroke, d.ph, 0);
+      const gw = sampleGerstner(d.x, d.z, t);
+      if (d.isWaving) {
+        // Nageur vertical barbotant dans l'eau jusqu'au torse, un bras levé saluant la plage
+        const ySub = gw.y - 1.50;
+        const bob = Math.sin(t * 3.0 + d.ph) * 0.08;
+        const waveArm = -2.15 + Math.sin(t * 6.5 + d.ph) * 0.40;
+        const treadArm = Math.sin(t * 3.5 + d.ph) * 0.35;
+        setFull(pBodies, p.idx, gw.x, ySub + bob, gw.z, 0.08, d.ph, gw.slopeX * 0.35);
+        setFull(pHeads, p.idx, gw.x, ySub + bob, gw.z, 0.08, d.ph, 0);
+        setFull(pLimbsL, p.idx, gw.x, ySub + bob + 0.65 * PS, gw.z, treadArm, d.ph, 0);
+        setFull(pLimbsR, p.idx, gw.x, ySub + bob + 0.65 * PS, gw.z, waveArm, d.ph, 0);
+      } else {
+        // Nageur horizontal faisant le crawl à la surface de l'eau
+        const stroke = Math.sin(t * 5.2 + d.ph) * 0.95;
+        const roll = Math.sin(t * 3.8 + d.ph) * 0.25;
+        const kickL = Math.sin(t * 9.0 + d.ph) * 0.45;
+        const kickR = -Math.sin(t * 9.0 + d.ph) * 0.45;
+        const ySwim = gw.y - 0.14;
+        setFull(pBodies, p.idx, gw.x, ySwim, gw.z, Math.PI / 2, d.ph, roll);
+        setFull(pHeads, p.idx, gw.x, ySwim, gw.z, Math.PI / 2, d.ph, roll * 0.5);
+        setFull(pLimbsL, p.idx, gw.x, ySwim, gw.z, Math.PI / 2 + stroke, d.ph, kickL);
+        setFull(pLimbsR, p.idx, gw.x, ySwim, gw.z, Math.PI / 2 - stroke, d.ph, kickR);
+      }
     } else if (p.kind === 'lounger') {
       const d = p.data;
       const breathe = Math.sin(t * 1.8 + p.idx) * 0.02;
@@ -7461,6 +7771,31 @@ function updateWorld(dt) {
   pLimbsL.instanceMatrix.needsUpdate = true;
   pLimbsR.instanceMatrix.needsUpdate = true;
   pHeads.instanceMatrix.needsUpdate = true;
+
+  /* Animation de la sauveteuse Minipoly en patrouille de course le long du rivage */
+  if (typeof lgTorsoMesh !== 'undefined') {
+    const d = lifeguardData;
+    d.x += dt * d.speed * d.dir;
+    if (d.x > d.xMax) { d.x = d.xMax; d.dir = -1; }
+    else if (d.x < d.xMin) { d.x = d.xMin; d.dir = 1; }
+
+    const ry = (d.dir > 0) ? (Math.PI / 2) : (-Math.PI / 2);
+    const runPhase = t * 13.5;
+    const legSwing = Math.sin(runPhase) * 0.85;
+    const bounce = Math.abs(Math.sin(runPhase)) * 0.18;
+
+    const z = d.zShore + Math.sin(d.x * 0.02) * 2.5;
+    const y = getBeachElevation(d.x, z) + bounce;
+
+    lgTorsoMesh.position.set(d.x, y, z);
+    lgTorsoMesh.rotation.set(0, ry, -d.dir * 0.18);
+
+    lgLimbLMesh.position.set(d.x, y + 0.65, z);
+    lgLimbLMesh.rotation.set(0, ry, -d.dir * legSwing);
+
+    lgLimbRMesh.position.set(d.x, y + 0.65, z);
+    lgLimbRMesh.rotation.set(0, ry, d.dir * legSwing);
+  }
 
   volleyBalls.forEach((b, i) => {
     const s = Math.sin(t * 3.2 + i * 1.5);
