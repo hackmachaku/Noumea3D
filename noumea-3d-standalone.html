@@ -3108,7 +3108,12 @@ const PAL = {
   terracotta: 0xc8593b, terracottaLight: 0xdc6f52,
   fountainStone: 0xede5d5, fountainStoneDark: 0xcac1b0, fountainCeleste: 0xf8f4ec,
   fountainWater: 0x24e6de, parkPaving: 0xede4d4,
-  portCraneYellow: 0xf59e0b, portCraneDark: 0xd97706, portCraneCabin: 0x1e293b, portCable: 0x94a3b8,
+  portCraneYellow: 0xf59e0b, portCraneDark: 0xd97706, portCraneCabin: 0x1e293b, portCable: 0xcbd5e1,
+  spreaderOrange: 0xea580c, spreaderDark: 0x7c2d12,
+  shipHullDark: 0x1e293b, shipAntifouling: 0x991b1b, shipBridgeWhite: 0xf8fafc, shipStackRed: 0xdc2626, shipDeckGrey: 0x475569,
+  shipHullOrange: 0xc2410c, shipHoldDark: 0x0f172a,
+  tugBlue: 0x0284c7, tugTireBlack: 0x0f172a,
+  containerColors: [0x0284c7, 0xf59e0b, 0x1d4ed8, 0x059669, 0xdc2626, 0xdb2777, 0x475569, 0x0891b2],
   fenceIron: 0x1e242a, fenceBrick: 0xb8422a, fenceCap: 0xfbf6ec,
 
   /* Végétation stylisée enrichie (6 espèces) */
@@ -3465,7 +3470,7 @@ const COAST = [
   [880, -260], [900, 60], [830, 380], [740, 620],              // pointe Ouen Toro
   [580, 690], [380, 715], [120, 705],                           // Anse Vata
   [-160, 685], [-380, 625],                                     // Baie des Citrons
-  [-560, 545], [-720, 385], [-780, 240],
+  [-560, 545], [-688, 385], [-688, 120],
   [-700, 110], [-560, 110], [-560, -70], [-700, -70],           // bassin de Port Moselle
   [-860, -300], [-820, -620]
 ];
@@ -4793,51 +4798,95 @@ const fx = -130, fz = -285;
   L.push(coneG(2.6, 2.4, 8, 0xef4444, -808, 16.4, 122));
 })();
 
-/* 7.5 Port de commerce : grues portuaires mobiles animées, conteneurs, cargo */
+/* 7.5 Port Autonome de Nouméa : Grues STS, Porte-conteneurs, Minéralier, Remorqueur & Terminal */
 const portCranes = [];
-[[-690, 215, 0.0], [-690, 295, 2.5]].forEach(([cx, cz, phase], k) => {
+const portCables = [];
+
+/* Deux portiques de quai (STS / Liebherr LHM) */
+[[-692, 220, 0.0], [-692, 290, 3.2]].forEach(([cx, cz, phase], k) => {
   const craneGroup = new THREE.Group();
   craneGroup.position.set(cx, ROAD_Y, cz);
   scene.add(craneGroup);
 
   const cParts = [];
-  cParts.push(bx(12, 1.8, 14, 0x334155, 0, 0.9, 0));
-  [-4.5, 4.5].forEach(px => {
-    [-5.5, 5.5].forEach(pz => {
-      cParts.push(segCyl(px * 1.1, 1.8, pz * 1.1, px * 0.45, 22, pz * 0.45, 0.55, 0.45, 6, PAL.portCraneYellow));
-      cParts.push(bx(2.2, 1.2, 2.8, 0x1e293b, px * 1.1, 0.6, pz * 1.1));
+  /* 1. Base et boggies de roulement sur rails de quai */
+  cParts.push(bx(13, 1.8, 16, 0x1e293b, 0, 0.9, 0));
+  [-5.2, 5.2].forEach(px => {
+    [-6.5, 6.5].forEach(pz => {
+      // 4 Boggies à doubles roues
+      cParts.push(bx(2.4, 1.4, 3.2, 0x0f172a, px, 0.7, pz));
+      // Jambes inclinées en treillis jaune sécurité
+      cParts.push(segCyl(px, 1.4, pz, px * 0.42, 20.5, pz * 0.42, 0.65, 0.50, 6, PAL.portCraneYellow));
     });
+    // Poutres de liaison horizontales
+    cParts.push(bx(0.9, 1.1, 13, PAL.portCraneYellow, px * 0.7, 10.5, 0));
   });
-  cParts.push(bx(9, 2.2, 9, PAL.portCraneYellow, 0, 23.1, 0));
-  cParts.push(bx(4.5, 3.6, 4.5, PAL.portCraneCabin, -2.5, 25.8, 2.0));
-  cParts.push(bx(4.6, 1.8, 2.8, 0x22d3ee, -2.5, 26.2, 2.2));
-  cParts.push(bx(4.2, 18, 4.2, PAL.portCraneYellow, 2.0, 32, 0));
-  cParts.push(segCyl(2.0, 41, 0, -45, 29, 0, 0.14, 0.14, 4, 0x94a3b8));
-  cParts.push(segCyl(2.0, 41, 0, 18, 29, 0, 0.14, 0.14, 4, 0x94a3b8));
-  cParts.push(bx(74, 3.2, 3.6, PAL.portCraneYellow, -18, 27.8, 0));
+
+  /* 2. Plateforme supérieure et salle des machines */
+  cParts.push(bx(10, 2.2, 10, PAL.portCraneYellow, 0, 21.6, 0));
+  // Salle des machines et contrepoids arrière
+  cParts.push(bx(8.5, 4.8, 7.5, PAL.portCraneDark, 9.5, 25.5, 0));
+  cParts.push(bx(4.0, 3.2, 7.0, 0x1e293b, 13.5, 25.0, 0));
+  // Cabine opérateur vitrée panoramique
+  cParts.push(bx(4.2, 3.4, 4.0, PAL.portCraneCabin, -5.5, 24.0, 2.8));
+  cParts.push(bx(4.3, 1.8, 3.8, 0x38bdf8, -5.5, 24.4, 2.8));
+
+  /* 3. Pylône sommital et haubans de flèche */
+  cParts.push(bx(4.0, 16, 4.0, PAL.portCraneYellow, 1.5, 30.5, 0));
+  cParts.push(coneG(2.4, 4.5, 4, PAL.portCraneYellow, 1.5, 40.5, 0));
+  // Câbles haubans en acier vers l'avant de la flèche et le contrepoids
+  cParts.push(segCyl(1.5, 38.5, 0, -46, 26.5, 0, 0.16, 0.16, 4, PAL.portCable));
+  cParts.push(segCyl(1.5, 38.5, 0, -22, 26.5, 0, 0.16, 0.16, 4, PAL.portCable));
+  cParts.push(segCyl(1.5, 38.5, 0, 14, 26.5, 0, 0.16, 0.16, 4, PAL.portCable));
+
+  /* 4. Flèche treillis horizontale (portée de 58m vers la mer) */
+  cParts.push(bx(62, 3.2, 3.8, PAL.portCraneYellow, -18, 26.2, 0));
+  // Rails de roulement du chariot sous la flèche
+  cParts.push(bx(58, 0.4, 0.35, 0x0f172a, -18, 24.4, -1.2));
+  cParts.push(bx(58, 0.4, 0.35, 0x0f172a, -18, 24.4, 1.2));
   craneGroup.add(mergedMesh(cParts));
 
+  /* 5. Chariot de roulement (Trolley) monté sur la flèche */
   const trolleyGroup = new THREE.Group();
-  trolleyGroup.position.set(-15, 26.0, 0);
-  const tMesh = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.8, 4.2), new THREE.MeshLambertMaterial({ color: 0x334155, flatShading: true }));
+  trolleyGroup.position.set(-10, 24.2, 0);
+  const tMesh = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.4, 4.2), new THREE.MeshLambertMaterial({ color: 0x334155, flatShading: true }));
   trolleyGroup.add(tMesh);
+  // Tambours d'enroulement des câbles
+  const winchMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 3.2, 8), new THREE.MeshLambertMaterial({ color: 0x64748b, flatShading: true }));
+  winchMesh.rotation.x = Math.PI / 2;
+  winchMesh.position.y = 0.8;
+  trolleyGroup.add(winchMesh);
 
+  /* 6. Palonnier télescopique (Spreader) enfant du Trolley */
   const spreaderGroup = new THREE.Group();
-  spreaderGroup.position.set(0, -10, 0);
-  const spMesh = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.8, 4.8), new THREE.MeshLambertMaterial({ color: 0xd97706, flatShading: true }));
+  spreaderGroup.position.set(0, -16.0, 0);
+  const spMesh = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.9, 4.6), new THREE.MeshLambertMaterial({ color: PAL.spreaderOrange, flatShading: true }));
   spreaderGroup.add(spMesh);
+  // Twist-locks et guides d'angles de centrage (flippers)
+  [[-5.8, -2.1], [5.8, -2.1], [-5.8, 2.1], [5.8, 2.1]].forEach(([fx, fz]) => {
+    const flip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.5), new THREE.MeshLambertMaterial({ color: PAL.spreaderDark, flatShading: true }));
+    flip.position.set(fx, -0.6, fz);
+    spreaderGroup.add(flip);
+  });
 
-  const cableMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8 });
-  const cableGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 4);
-  const cableMesh = new THREE.Mesh(cableGeo, cableMat);
-  cableMesh.position.set(0, -5, 0);
-  cableMesh.scale.set(1, 10, 1);
-  trolleyGroup.add(cableMesh);
+  /* 7. Quatre câbles de levage verticaux en acier */
+  const cableCylGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 6);
+  cableCylGeo.translate(0, -0.5, 0); // Origine au sommet du câble
+  const cableMat = new THREE.MeshLambertMaterial({ color: PAL.portCable, flatShading: true });
+  const cables = [];
+  [[-1.8, -1.2], [1.8, -1.2], [-1.8, 1.2], [1.8, 1.2]].forEach(([px, pz]) => {
+    const cm = new THREE.Mesh(cableCylGeo, cableMat);
+    cm.position.set(px, 0, pz);
+    cm.scale.set(1, 16.0, 1);
+    trolleyGroup.add(cm);
+    cables.push(cm);
+  });
 
-  const hoistedContGeo = new THREE.BoxGeometry(12, 5.0, 4.6);
-  const hoistedContMat = new THREE.MeshLambertMaterial({ color: k === 0 ? 0xef4444 : 0x0284c7, flatShading: true });
+  /* 8. Conteneur actif manutentionné (strictement enfant du palonnier) */
+  const hoistedContGeo = new THREE.BoxGeometry(12.0, 4.8, 4.4);
+  const hoistedContMat = new THREE.MeshLambertMaterial({ color: k === 0 ? 0x0284c7 : 0xdc2626, flatShading: true });
   const hoistedContMesh = new THREE.Mesh(hoistedContGeo, hoistedContMat);
-  hoistedContMesh.position.y = -2.9;
+  hoistedContMesh.position.set(0, -2.85, 0);
   spreaderGroup.add(hoistedContMesh);
 
   trolleyGroup.add(spreaderGroup);
@@ -4847,7 +4896,7 @@ const portCranes = [];
     group: craneGroup,
     trolley: trolleyGroup,
     spreader: spreaderGroup,
-    cables: cableMesh,
+    cables,
     container: hoistedContMesh,
     phase,
     baseX: cx,
@@ -4855,28 +4904,172 @@ const portCranes = [];
   });
 });
 
+/* Navire 1 : Porte-conteneurs Principal Amarré au Quai de Commerce (Grande Rade) */
+const portShip1 = new THREE.Group();
+portShip1.position.set(-713, 0, 255);
+scene.add(portShip1);
 (() => {
-  const sx = -822, sz = 255;
-  L.push(bx(20, 9, 86, 0x991b1b, sx, 2.5, sz));
-  L.push(bx(21, 1.4, 88, 0x475569, sx, 7.4, sz));
-  L.push(bx(13, 11, 16, PAL.wallA, sx, 13, sz + 30));
-  L.push(bx(4, 6, 4, 0xef4444, sx, 22, sz + 30));
-  [-18, 0, 18].forEach(o => L.push(bx(11, 5, 14, pick(PAL.roofs), sx, 10.5, sz + o)));
+  const S = [];
+  const SL = 142, SW = 22, SH = 14;
+  // 1. Oeuvres vives (carène sous flottaison avec antifouling rouge)
+  S.push(bx(SW - 2, 4.5, SL - 8, PAL.shipAntifouling, 0, -1.5, 0));
+  // Étrave à bulbe sous-marine
+  S.push(segCyl(0, -1.6, -(SL / 2 - 2), 0, -1.6, -(SL / 2 + 5), 2.2, 1.4, 8, PAL.shipAntifouling));
+  // 2. Ligne de flottaison blanche (boot-topping)
+  S.push(bx(SW - 0.5, 0.7, SL - 3, 0xffffff, 0, 1.1, 0));
+  // 3. Oeuvres mortes (muraille coque bleu nuit / noir)
+  S.push(bx(SW, 5.2, SL, PAL.shipHullDark, 0, 4.0, 0));
+  // Étrave élancée et tableau arrière
+  S.push(bx(SW - 3, 3.2, 10, PAL.shipHullDark, 0, 5.0, -(SL / 2 - 2)));
+  S.push(bx(SW - 2, 3.0, 8, PAL.shipHullDark, 0, 5.0, (SL / 2 - 1)));
+  // Pont principal gris acier
+  S.push(bx(SW - 1.2, 0.5, SL - 2, PAL.shipDeckGrey, 0, 6.8, 0));
+
+  // 4. Château arrière et passerelle de navigation (Superstructure 4 niveaux)
+  const castZ = SL / 2 - 22;
+  S.push(bx(SW - 2.5, 3.2, 20, PAL.shipBridgeWhite, 0, 8.4, castZ));
+  S.push(bx(SW - 4.0, 2.8, 16, PAL.shipBridgeWhite, 0, 11.4, castZ));
+  S.push(bx(SW - 5.0, 2.6, 13, PAL.shipBridgeWhite, 0, 14.1, castZ));
+  // Passerelle de commandement avec ailerons débordants et vitrage panoramique
+  S.push(bx(SW + 2.0, 2.2, 8.0, PAL.shipBridgeWhite, 0, 16.5, castZ - 2));
+  S.push(bx(SW + 2.1, 1.2, 7.8, 0x38bdf8, 0, 16.6, castZ - 2));
+  // Cheminée de propulsion rouge avec bandeau noir
+  S.push(bx(4.2, 7.0, 6.0, PAL.shipStackRed, 0, 17.5, castZ + 6.5));
+  S.push(bx(4.4, 1.4, 6.2, 0x0f172a, 0, 21.2, castZ + 6.5));
+  // Mât radar et antennes
+  S.push(bx(0.6, 8.0, 0.6, 0xf8fafc, 0, 21.5, castZ - 3));
+  S.push(bx(4.5, 0.5, 0.5, 0xf8fafc, 0, 24.5, castZ - 3));
+  // Canots de sauvetage fermés orange sur bossoirs (bâbord et tribord)
+  [-1, 1].forEach(s => {
+    S.push(bx(2.0, 1.8, 5.5, 0xf97316, s * (SW / 2 - 1.5), 11.2, castZ));
+  });
+
+  // 5. Cales à conteneurs avec guides cellulaires et piles de conteneurs colorés
+  const bayCenters = [-42, -18, 6];
+  bayCenters.forEach((bz, bi) => {
+    // 3 rangées de conteneurs par cale
+    for (let row = -1; row <= 1; row++) {
+      for (let col = -1; col <= 1; col++) {
+        // Laisser les cales sous les deux grues (k=0 et k=1) avec espace de manutention
+        const tiers = (bi === 1 && col === 0) ? 1 : (bi === 0 && col === 0) ? 2 : (bi === 2 ? 3 : 2);
+        for (let tier = 0; tier < tiers; tier++) {
+          const colHex = PAL.containerColors[(bi * 3 + row * 2 + col + tier * 5) % PAL.containerColors.length];
+          const cx = col * 4.8, cy = 7.1 + tier * 4.6 + 2.3, cz = bz + row * 12.2;
+          S.push(bx(4.4, 4.5, 11.8, colHex, cx, cy, cz));
+        }
+      }
+    }
+  });
+
+  portShip1.add(mergedMesh(S));
 })();
 
-const contGeo = new THREE.BoxGeometry(12, 5.2, 5);
-const containers = instanced(contGeo, 60, { cast: true, receive: true });
+/* Navire 2 : Minéralier de Nickel SLN au Mouillage dans la Grande Rade */
+const portShip2 = new THREE.Group();
+portShip2.position.set(-795, 0, 415);
+portShip2.rotation.y = 0.26;
+scene.add(portShip2);
+(() => {
+  const S = [];
+  const ML = 156, MW = 24;
+  // Coque rouge brique / rouille des minéraliers de Doniambo
+  S.push(bx(MW - 2, 5.0, ML - 8, PAL.shipAntifouling, 0, -1.8, 0));
+  S.push(bx(MW - 0.4, 0.8, ML - 3, 0xffffff, 0, 1.1, 0));
+  S.push(bx(MW, 5.6, ML, PAL.shipHullOrange, 0, 4.3, 0));
+  S.push(bx(MW - 1.0, 0.6, ML - 2, PAL.shipDeckGrey, 0, 7.3, 0));
+  // 5 Grandes cales à minerai avec écoutilles surélevées et tas de nickel
+  for (let h = -2; h <= 2; h++) {
+    const hz = h * 22 - 6;
+    S.push(bx(MW - 5, 1.4, 16, 0x1e293b, 0, 8.0, hz));
+    S.push(coneG(MW / 2 - 3.5, 2.5, 6, 0x334155, 0, 9.2, hz)); // Minerai de nickel
+  }
+  // 4 Grues de pont électro-hydrauliques entre les cales
+  for (let g = -1.5; g <= 1.5; g += 1) {
+    const gz = g * 22 - 6;
+    S.push(segCyl(0, 7.5, gz, 0, 13.5, gz, 1.1, 0.9, 8, PAL.portCraneYellow));
+    S.push(segCyl(0, 13.0, gz, -6.5, 19.5, gz + 4, 0.45, 0.35, 6, PAL.portCraneYellow));
+  }
+  // Château arrière du minéralier
+  const mCastZ = ML / 2 - 18;
+  S.push(bx(MW - 3, 7.5, 18, PAL.shipBridgeWhite, 0, 11.0, mCastZ));
+  S.push(bx(MW - 1, 2.2, 7.5, PAL.shipBridgeWhite, 0, 15.8, mCastZ - 2));
+  S.push(bx(MW - 0.9, 1.2, 7.3, 0x38bdf8, 0, 15.9, mCastZ - 2));
+  S.push(bx(4.8, 8.0, 5.5, 0x1e293b, 0, 18.0, mCastZ + 5));
+  portShip2.add(mergedMesh(S));
+})();
+
+/* Remorqueur Portuaire d'Assistance ('Dauphin' / 'Koumac' de Nouméa Remorquage) */
+const portTugboat = new THREE.Group();
+portTugboat.position.set(-732, 0, 160);
+portTugboat.rotation.y = -0.32;
+scene.add(portTugboat);
+(() => {
+  const T = [];
+  const TL = 28, TW = 9.4;
+  // Coque trapue bleu océan et carène rouge
+  T.push(bx(TW - 1.5, 2.4, TL - 4, PAL.shipAntifouling, 0, -1.0, 0));
+  T.push(bx(TW, 3.2, TL, PAL.tugBlue, 0, 1.8, 0));
+  T.push(bx(TW - 0.8, 0.4, TL - 1, 0x334155, 0, 3.5, 0));
+  // Énorme boudin de défense en caoutchouc et pneus d'étrave pour pousser les navires
+  T.push(bx(TW + 0.8, 1.6, 3.5, PAL.tugTireBlack, 0, 2.6, -(TL / 2)));
+  for (let ti = -4; ti <= 4; ti++) {
+    T.push(bx(0.6, 0.9, 1.8, PAL.tugTireBlack, -(TW / 2 + 0.2), 2.6, ti * 2.8));
+    T.push(bx(0.6, 0.9, 1.8, PAL.tugTireBlack, (TW / 2 + 0.2), 2.6, ti * 2.8));
+  }
+  // Passerelle de pilotage surélevée blanche avec vitrage à 360°
+  T.push(bx(TW - 3.2, 2.8, 10, 0xf8fafc, 0, 5.0, -1.5));
+  T.push(bx(TW - 3.0, 1.4, 9.8, 0x38bdf8, 0, 5.5, -1.5));
+  // Treuil de remorquage sur plage arrière
+  T.push(cylG(1.2, 1.2, 4.0, 8, 0x0f172a, 0, 4.4, 7.5));
+  // Échappements et mât de navigation
+  T.push(bx(1.2, 4.2, 1.4, 0x1e293b, -1.8, 7.5, 2.5));
+  T.push(bx(1.2, 4.2, 1.4, 0x1e293b, 1.8, 7.5, 2.5));
+  T.push(bx(0.3, 5.5, 0.3, 0xf8fafc, 0, 8.5, -2.5));
+  portTugboat.add(mergedMesh(T));
+})();
+
+/* Aménagement du Quai de Commerce et Terminal Conteneurs */
+(() => {
+  // 1. Bordure de sécurité hachurée jaune et noire le long des 750m de quai (x = -690)
+  for (let bz = 170; bz <= 340; bz += 5.0) {
+    L.push(bx(0.8, 0.15, 2.5, 0xf59e0b, -690.4, 3.08, bz));
+    L.push(bx(0.8, 0.15, 2.5, 0x0f172a, -690.4, 3.08, bz + 2.5));
+  }
+  // 2. Bittes d'amarrage (bollards en fonte) et défenses de quai en caoutchouc
+  for (let bz = 180; bz <= 330; bz += 22.0) {
+    L.push(cylG(0.45, 0.40, 1.1, 8, 0x0f172a, -691.5, 3.55, bz));
+    L.push(bx(1.6, 0.35, 0.7, 0x0f172a, -691.5, 4.1, bz));
+    // Défenses cylindriques comprimées entre le quai et le porte-conteneurs
+    L.push(cylG(1.2, 1.2, 4.2, 8, 0x1e293b, -693.2, 1.8, bz));
+  }
+  // 3. Pylônes d'éclairage haute intensité du terminal portuaire
+  [[-660, 195], [-660, 260], [-660, 325], [-615, 230], [-615, 290]].forEach(([px, pz]) => {
+    L.push(cylG(0.55, 0.40, 26, 6, 0x64748b, px, 16, pz));
+    L.push(bx(4.5, 0.9, 2.2, 0x1e293b, px, 29.5, pz));
+    // Projecteurs LED blancs
+    L.push(bx(4.2, 0.5, 1.8, 0xfef08a, px, 29.2, pz));
+  });
+})();
+
+/* Parc de conteneurs rangés sur le terre-plein du terminal */
+const contGeo = new THREE.BoxGeometry(12, 5.0, 4.6);
+const containers = instanced(contGeo, 96, { cast: true, receive: true });
 scene.add(containers);
 let nC = 0;
-for (let k = 0; k < 46; k++) {
-  const x = rr(-700, -500), z = rr(190, 310), st = rnd() < 0.45 ? 2 : 1;
-  for (let s = 0; s < st; s++) {
-    if (nC >= 60) break;
-    setTRS(containers, nC, x, 3 + 2.6 + s * 5.2, z, rnd() < 0.5 ? 0 : Math.PI / 2);
-    containers.setColorAt(nC, cRoof.set(pick([0xef4444, 0x0284c7, 0xf59e0b, 0x10b981, 0x8b5cf6])));
-    nC++;
+// Blocs de stockage ordonnés avec allées de circulation
+[[-672, 210], [-672, 245], [-672, 280], [-672, 315], [-640, 210], [-640, 245], [-640, 280], [-640, 315]].forEach(([bx0, bz0]) => {
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 2; c++) {
+      const tiers = (r === 0 && c === 0) ? 3 : (r + c > 1 ? 1 : 2);
+      for (let s = 0; s < tiers; s++) {
+        if (nC >= 96) break;
+        setTRS(containers, nC, bx0 + c * 5.4, 3 + 2.5 + s * 5.0, bz0 + r * 13.0, 0);
+        containers.setColorAt(nC, cRoof.set(PAL.containerColors[(nC * 3) % PAL.containerColors.length]));
+        nC++;
+      }
+    }
   }
-}
+});
 containers.count = nC;
 containers.instanceMatrix.needsUpdate = true;
 
@@ -6674,7 +6867,7 @@ const VIEWS = {
   avenue:     { p: [-130, 16, -135], t: [-130, 12, -285] },
   plage:      { p: [210, 22, 760],   t: [340, 8, 705] },
   large:      { p: [760, 900, 2150], t: [30, 0, 160] },
-  port:       { p: [-890, 155, 275], t: [-620, 0, 60] },
+  port:       { p: [-810, 48, 145],  t: [-705, 16, 255] },
   hippodrome: { p: [150, 145, 790],  t: [140, 0, 470] },
   ouentoro:   { p: [930, 255, 830],  t: [640, 80, 520] },
   ilots:      { p: [280, 240, 1720], t: [-110, 10, 1440] }
@@ -6988,70 +7181,95 @@ function updateWorld(dt) {
     });
   }
 
-  /* 3.3 Grues Portuaires Automatisées de Déchargement de Conteneurs (Port Autonome) */
+  /* 3.3 Flottaison Hydrostatique des Navires du Port Autonome (Grande Rade) */
+  if (typeof portShip1 !== 'undefined') {
+    const s1Y = Math.sin(t * 1.05 + 1.2) * 0.20 + Math.sin(t * 0.62) * 0.10;
+    const s1Pitch = Math.sin(t * 0.82 + 0.5) * 0.007;
+    const s1Roll  = Math.cos(t * 1.10 + 1.7) * 0.012;
+    portShip1.position.y = s1Y;
+    portShip1.rotation.x = s1Pitch;
+    portShip1.rotation.z = s1Roll;
+  }
+  if (typeof portShip2 !== 'undefined') {
+    const s2Y = Math.sin(t * 1.18 + 2.8) * 0.30 + Math.cos(t * 0.68) * 0.14;
+    const s2Pitch = Math.sin(t * 0.88 + 1.9) * 0.015;
+    const s2Roll  = Math.cos(t * 1.25 + 0.9) * 0.022;
+    portShip2.position.y = s2Y;
+    portShip2.rotation.x = s2Pitch;
+    portShip2.rotation.z = s2Roll;
+  }
+  if (typeof portTugboat !== 'undefined') {
+    const tgY = Math.sin(t * 2.05 + 0.4) * 0.36 + Math.cos(t * 1.35) * 0.16;
+    const tgPitch = Math.cos(t * 1.75 + 0.8) * 0.042;
+    const tgRoll  = Math.sin(t * 2.25 + 2.0) * 0.060;
+    portTugboat.position.y = tgY;
+    portTugboat.rotation.x = tgPitch;
+    portTugboat.rotation.z = tgRoll;
+  }
+
+  /* 3.4 Grues Portuaires Automatisées de Manutention (Cycle de chargement quai -> navire) */
   if (typeof portCranes !== 'undefined') {
     portCranes.forEach((cr) => {
-      const PERIOD = 18.0;
-      const tCycle = (t * 0.85 + cr.phase) % PERIOD;
-      let trolX = 0, spreadY = 27.5, hasBox = false;
+      const PERIOD = 20.0;
+      const tCycle = (t * 0.82 + cr.phase) % PERIOD;
+      let trolX = -8.0, spreadRelY = -3.5, hasBox = false;
 
-      // Phase 1 (0 to 5s): Chariot roule vers la mer au-dessus du cargo
-      if (tCycle < 5.0) {
-        const u = tCycle / 5.0;
-        trolX = THREE.MathUtils.lerp(8.0, 32.0, THREE.MathUtils.smoothstep(u, 0, 1));
-        spreadY = 27.5;
+      // Phase 1 (0 to 3.5s): Descente du palonnier au quai sur le conteneur terrestre
+      if (tCycle < 3.5) {
+        trolX = -8.0;
+        const u = tCycle / 3.5;
+        spreadRelY = THREE.MathUtils.lerp(-3.5, -20.5, THREE.MathUtils.smoothstep(u, 0, 1));
         hasBox = false;
       }
-      // Phase 2 (5 to 7.5s): Descente du palonnier dans la cale du navire
-      else if (tCycle < 7.5) {
-        trolX = 32.0;
-        const u = (tCycle - 5.0) / 2.5;
-        spreadY = THREE.MathUtils.lerp(27.5, 9.2, Math.sin(u * Math.PI * 0.5));
-        hasBox = (u > 0.85);
-      }
-      // Phase 3 (7.5 to 10s): Levage du conteneur
-      else if (tCycle < 10.0) {
-        trolX = 32.0;
-        const u = (tCycle - 7.5) / 2.5;
-        spreadY = THREE.MathUtils.lerp(9.2, 27.5, Math.sin(u * Math.PI * 0.5));
+      // Phase 2 (3.5 to 5.5s): Verrouillage twist-lock et levage du conteneur
+      else if (tCycle < 5.5) {
+        trolX = -8.0;
+        const u = (tCycle - 3.5) / 2.0;
+        spreadRelY = THREE.MathUtils.lerp(-20.5, -3.5, THREE.MathUtils.smoothstep(u, 0, 1));
         hasBox = true;
       }
-      // Phase 4 (10 to 14.5s): Translation du chariot vers le terminal terrestre
+      // Phase 3 (5.5 to 11.0s): Chariot traverse la flèche vers le large au-dessus de la cale du navire
+      else if (tCycle < 11.0) {
+        const u = (tCycle - 5.5) / 5.5;
+        trolX = THREE.MathUtils.lerp(-8.0, -35.0, THREE.MathUtils.smoothstep(u, 0, 1));
+        spreadRelY = -3.5;
+        hasBox = true;
+      }
+      // Phase 4 (11.0 to 14.5s): Descente du conteneur dans la cellule du porte-conteneurs
       else if (tCycle < 14.5) {
-        const u = (tCycle - 10.0) / 4.5;
-        trolX = THREE.MathUtils.lerp(32.0, 6.0, THREE.MathUtils.smoothstep(u, 0, 1));
-        spreadY = 27.5;
+        trolX = -35.0;
+        const u = (tCycle - 11.0) / 3.5;
+        spreadRelY = THREE.MathUtils.lerp(-3.5, -17.0, THREE.MathUtils.smoothstep(u, 0, 1));
         hasBox = true;
       }
-      // Phase 5 (14.5 to 16.5s): Descente du conteneur sur le quai
+      // Phase 5 (14.5 to 16.5s): Déverrouillage twist-lock et dépose du conteneur sur le navire
       else if (tCycle < 16.5) {
-        trolX = 6.0;
+        trolX = -35.0;
         const u = (tCycle - 14.5) / 2.0;
-        spreadY = THREE.MathUtils.lerp(27.5, 6.5, Math.sin(u * Math.PI * 0.5));
-        hasBox = (u < 0.90);
+        spreadRelY = THREE.MathUtils.lerp(-17.0, -3.5, THREE.MathUtils.smoothstep(u, 0, 1));
+        hasBox = (u < 0.15); // Relâché immédiatement
       }
-      // Phase 6 (16.5 to 18s): Remontée du palonnier à vide
+      // Phase 6 (16.5 to 20.0s): Retour du chariot à vide vers le quai
       else {
-        trolX = 6.0;
-        const u = (tCycle - 16.5) / 1.5;
-        spreadY = THREE.MathUtils.lerp(6.5, 27.5, Math.sin(u * Math.PI * 0.5));
+        const u = (tCycle - 16.5) / 3.5;
+        trolX = THREE.MathUtils.lerp(-35.0, -8.0, THREE.MathUtils.smoothstep(u, 0, 1));
+        spreadRelY = -3.5;
         hasBox = false;
       }
 
+      // 1. Position du chariot le long de la flèche
       cr.trolley.position.x = trolX;
-      cr.spreader.position.x = trolX;
-      cr.spreader.position.y = spreadY;
+      // 2. Position verticale relative du palonnier sous le chariot
+      cr.spreader.position.set(0, spreadRelY, 0);
 
-      const cableLen = 29.2 - spreadY;
-      cr.cables.position.x = trolX;
-      cr.cables.position.y = 29.2 - cableLen / 2;
-      cr.cables.scale.y = cableLen;
+      // 3. Échelle et tension des 4 câbles d'acier
+      const cableH = Math.max(0.1, Math.abs(spreadRelY));
+      cr.cables.forEach((c) => {
+        c.scale.set(1, cableH, 1);
+      });
 
+      // 4. Visibilité du conteneur suspendu sous le palonnier
       cr.container.visible = hasBox;
-      if (hasBox) {
-        cr.container.position.x = trolX;
-        cr.container.position.y = spreadY - 1.4;
-      }
     });
   }
 
